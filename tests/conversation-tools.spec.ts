@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect, newChat } from './helpers/app';
 import { openCodeFolder } from './helpers/navigation';
-import { openTool } from './helpers/tools';
+import { openTool, toolPane, toolTab, toolsButton } from './helpers/tools';
 
 /**
  * Shows the Changes tool with its shortcut. A new chat has no changes of its own, so the chat
@@ -12,9 +12,10 @@ async function openChanges(page: Page) {
   // without a click.
   await page.getByLabel('Message agent').focus();
   await page.keyboard.press('ControlOrMeta+Shift+G');
-  const tools = page.getByRole('region', { name: 'Repository tools' });
-  await expect(tools.getByRole('heading', { name: 'Changes', exact: true })).toBeVisible();
-  await expect(tools.getByRole('button', { name: 'Close Changes', exact: true })).toBeVisible();
+  await expect(toolTab(page, 'Changes')).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    toolPane(page).getByRole('button', { name: 'Close tools', exact: true }),
+  ).toBeVisible();
 }
 
 test('conversation tools preview evidence, attach it to the draft, and send it only on request', async ({
@@ -103,7 +104,7 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   await page.screenshot({ path: 'test-results/conversation-tools-empty.png' });
   const tools = page.getByRole('region', { name: 'Chat', exact: true });
   await openTool(page, 'Terminal');
-  let dialog = page.getByRole('region', { name: 'Repository tools' });
+  const dialog = toolPane(page);
   await expect(dialog.getByLabel('Interactive terminal')).toContainText('Tests passed: 12');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
@@ -114,13 +115,17 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   const files = dialog.getByRole('list', { name: 'Changed files' });
   await expect(files.getByRole('button')).toHaveCount(3);
   // The diff shows no "+" and "−" marks. A screen reader hears "Added" or "Removed".
-  await expect(dialog.getByLabel('Git diff')).toContainText('Added: staged change');
+  await expect(dialog.getByRole('region', { name: /^Changes: / })).toContainText(
+    'Added: staged change',
+  );
   // The Changes pane has no attach button. The user attaches a file with @ or the + menu.
   await expect(dialog.getByRole('button', { name: 'Attach file to message' })).toHaveCount(0);
   await files.getByRole('button', { name: /^app\.ts/ }).click();
-  await expect(dialog.getByLabel('Git diff')).toContainText('Added: new');
+  await expect(dialog.getByRole('region', { name: /^Changes: / })).toContainText('Added: new');
   await files.getByRole('button', { name: /^new\.ts/ }).click();
-  await expect(dialog.getByLabel('Git diff')).toContainText('export const added = true;');
+  await expect(dialog.getByRole('region', { name: /^Changes: / })).toContainText(
+    'export const added = true;',
+  );
   await expect(files.locator('[aria-current="true"]')).toContainText('new.ts');
   await openTool(page, 'Browser');
   await dialog.getByRole('button', { name: 'Open preview' }).click();
@@ -132,12 +137,9 @@ test('conversation tools preview evidence, attach it to the draft, and send it o
   expect(await page.evaluate(() => (window as any).sent)).toEqual([]);
   await page.getByLabel('Message agent').fill('Review these changes and fix the annotated button.');
   await page.screenshot({ path: 'test-results/conversation-tools-attached.png' });
-  // Below 980px the tool pane is a sheet over the chat. The selected tool button hides it.
-  const browser = page
-    .getByRole('group', { name: 'Tools', exact: true })
-    .getByRole('button', { name: 'Browser', exact: true });
-  await browser.click();
-  await expect(browser).toHaveAttribute('aria-pressed', 'false');
+  // Below 980px the tool pane is a sheet over the chat. The pressed Tools button hides it.
+  await toolsButton(page).click();
+  await expect(toolsButton(page)).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Reviewed context.', { exact: true })).toBeVisible();
   const sent = await page.evaluate(() => (window as any).sent[0]);
@@ -154,7 +156,5 @@ test('browser preview explains native requirements instead of simulating command
   await openCodeFolder(page);
   await newChat(page);
   await openTool(page, 'Terminal');
-  await expect(
-    page.getByRole('region', { name: 'Repository tools' }).getByRole('alert'),
-  ).toContainText('Open the desktop app');
+  await expect(toolPane(page).getByRole('alert')).toContainText('Open the desktop app');
 });

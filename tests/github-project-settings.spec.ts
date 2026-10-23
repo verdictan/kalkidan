@@ -1,5 +1,5 @@
 import { test, expect } from './helpers/app';
-test('Board settings opens Settings › project › Board and links to the GitHub project settings', async ({
+test('Board settings opens the project part of Settings with its board and links to the GitHub project settings', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -69,17 +69,17 @@ test('Board settings opens Settings › project › Board and links to the GitHu
     .getByRole('navigation', { name: 'Project page', exact: true })
     .getByRole('button', { name: 'Tasks', exact: true })
     .click();
-  // Board settings… in the board menu opens the project section of Settings at its Board group.
+  // Board settings… in the board menu opens the project part of Settings with the board open.
   await page.getByRole('button', { name: 'Board: Roadmap #1', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Board settings…', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
-  await expect(
-    dialog
-      .getByRole('tablist', { name: 'Settings sections' })
-      .getByRole('tab', { name: 'Platform', exact: true }),
-  ).toHaveAttribute('aria-selected', 'true');
-  const board = dialog.getByRole('region', { name: 'Board', exact: true });
-  await expect(board).toBeFocused();
+  const dialog = page.getByRole('region', { name: 'Settings', exact: true });
+  const project = dialog.getByRole('region', { name: 'Platform', exact: true });
+  await expect(project).toBeFocused();
+  await expect(project.getByRole('button', { name: 'Roadmap', exact: true })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  );
+  const board = page.locator('#project-board');
   await expect(board.getByRole('list', { name: 'Connected board' })).toContainText('Roadmap');
   // Kalkidan does not edit the GitHub project. Its settings open on GitHub.
   await board.getByRole('button', { name: 'Open on GitHub', exact: true }).click();
@@ -100,7 +100,7 @@ test('Board settings opens Settings › project › Board and links to the GitHu
   await expect(github.getByRole('menuitem', { name: /^Status updates/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(github).toHaveCount(0);
-  await expect(dialog.getByLabel('Title', { exact: true })).toHaveCount(0);
-  await expect(dialog.getByRole('switch')).toHaveCount(0);
+  await expect(project.getByLabel('Title', { exact: true })).toHaveCount(0);
+  await expect(project.getByRole('switch')).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).writes)).toBeUndefined();
 });

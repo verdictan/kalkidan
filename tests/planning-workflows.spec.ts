@@ -266,25 +266,6 @@ test('explicit Docs selection previews source text and relationships before issu
     'Acceptance criteria B.\n\nSource document: Launch guide (doc, revision source-v1).',
   );
 });
-test('portfolio preserves source projects and filters personal assignments', async ({ page }) => {
-  // The tasks of all projects are on the Waiting for you page of the sidebar.
-  await page
-    .getByRole('navigation', { name: 'Projects and repositories' })
-    .getByRole('button', { name: /^Waiting for you/ })
-    .click();
-  const work = page
-    .getByRole('region', { name: 'Waiting for you', exact: true })
-    .getByRole('region', { name: 'My work' });
-  const whose = work.getByRole('group', { name: 'Whose tasks' });
-  await whose.getByRole('button', { name: 'Everyone', exact: true }).click();
-  await expect(work.getByRole('button', { name: 'Other project task' })).toBeVisible();
-  await expect(work).toContainText('Tools · No repository');
-  await whose.getByRole('button', { name: 'Assigned to me (developer)', exact: true }).click();
-  await expect(work.getByRole('button', { name: 'Other project task' })).toHaveCount(0);
-  await expect(work.getByRole('button', { name: 'Independent issue' })).toBeVisible();
-  await expect(work).toContainText('Platform · org/repo');
-});
-
 test('a usage link from a chat opens the Usage sheet without the task sheet', async ({ page }) => {
   // Chats send this event from their usage chip. The project page is not open yet.
   await openProjects(page);

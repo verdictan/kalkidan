@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ExternalLink, SquareKanban } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ChevronDown, ExternalLink, Plus, SquareKanban, X } from 'lucide-react';
 import type { API, Project, ProjectGroup, RemoteHost } from '../types';
 import { trackerConnection } from '../domain/tracker';
 import { useTracker } from '../hooks/use-tracker';
@@ -19,7 +19,13 @@ import { ConfirmDialog } from './confirm-dialog';
 import { ConnectBoardDialog, boardLabel } from './tracker-project-picker';
 import { TrackerWorkflowForm } from './tracker-workflow';
 import { RoadmapDateButton, useRoadmapDateFields } from './github-project-resources';
-import { ProjectCodeFolders, ProjectGeneral } from './project-settings-sections';
+import { setIdentityOverride } from '../domain/identity';
+import { useIdentityOverrides } from '../hooks/use-identity';
+import { useWorkspaceIdentity } from '../hooks/use-workspace-identity';
+import { IdentityMark } from './ui/identity-mark';
+import { IdentitySwatches } from './ui/identity-swatches';
+import { MoreButton } from './ui/more-button';
+import { menuDestructiveClass } from './ui/menu-styles';
 import { SettingsRow, SettingsRows } from './settings-disclosure';
 import { codeFolders } from './repository-import';
 
@@ -74,22 +80,24 @@ export function projectPart(tab: string | undefined) {
 }
 
 /**
- * Settings › <project>: one page with the name and color of the project, its code folders, its
- * board with the automatic status changes, and Remove project. Selects, switches and colors save
- * at once with Undo. Text saves when you press Enter or leave the field. The settings of the
- * GitHub project itself open on GitHub. `tab` moves to a part, for example 'board'.
+ * Settings › the current project (ST-C4): its mark, name and color, its repos as chips (hover ×
+ * removes one, + adds one), and the board chip. The board chip opens the board settings in
+ * place, under the chips. The ⋯ menu has Rename… and Remove project…. `tab` moves to a part,
+ * for example 'board'.
  */
 export function ProjectSettingsPanel({
   api,
   group,
+  groups = [group],
   repos = [],
-  host,
   open,
   tab,
   onRefresh,
 }: {
   api: API;
   group: ProjectGroup;
+  /** All projects, for the automatic colors. */
+  groups?: ProjectGroup[];
   /** All code folders. The section shows the code folders of this project. */
   repos?: Project[];
   /** The SSH host of the project, if it has one. */
@@ -102,30 +110,26 @@ export function ProjectSettingsPanel({
   onRefresh?(): void | Promise<void>;
 }) {
   const [removing, setRemoving] = useState(false);
+  const [removingRepo, setRemovingRepo] = useState<Project>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const root = useRef<HTMLDivElement>(null);
   const part = projectPart(tab);
+  const [boardOpen, setBoardOpen] = useState(part === projectParts.board);
   useEffect(() => {
-    if (!open || !part) return;
-    let tries = 0;
-    const timer = setInterval(() => {
-      const element = root.current?.querySelector<HTMLElement>(`[id="${CSS.escape(part)}"]`);
-      if (element || ++tries > 40) {
-        clearInterval(timer);
-        if (!element) return;
-        element.scrollIntoView({ block: 'start' });
-        element.focus({ preventScroll: true });
-      }
-    }, 50);
-    return () => clearInterval(timer);
-  }, [open, part]);
+    if (part === projectParts.board) setBoardOpen(true);
+  }, [part]);
+  const identity = useWorkspaceIdentity(groups, repos, []);
+  const overrides = useIdentityOverrides();
+  const color = identity.project(group);
+  const chosen = overrides['project:' + group.name] || null;
   /** Tells the project page to load its board again. */
   const boardChanged = () =>
     window.dispatchEvent(
       new CustomEvent('kalkidan-github-writes', { detail: { groupId: group.id } }),
     );
   const members = repos.filter((repo) => group.repoIds.includes(repo.id));
+  const connection = trackerConnection(group);
+  const boardTitle = connection?.project.title;
   async function remove() {
     if (busy) return;
     setBusy(true);
@@ -141,65 +145,151 @@ export function ProjectSettingsPanel({
       setBusy(false);
     }
   }
-  // A project on an SSH host shows the host under its name.
-  const remote = group.hostId ? host?.name || host?.target || 'SSH host' : '';
+  async function removeRepo() {
+    if (!removingRepo || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api.remove(removingRepo.id);
+      showToast(`${removingRepo.name} removed from ${group.name}.`);
+      setRemovingRepo(undefined);
+      await onRefresh?.();
+    } catch (failure) {
+      setError(errorMessage(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <div ref={root} className="contents">
-      <ProjectGeneral
-        key={group.id}
-        api={api}
-        group={group}
-        location={remote || undefined}
-        onSaved={async () => {
-          await onRefresh?.();
-        }}
-      />
-      <ProjectCodeFolders
-        group={group}
-        repos={repos}
-        onAdd={() =>
-          window.dispatchEvent(
-            new CustomEvent('kalkidan-add-code-folder', { detail: { groupId: group.id } }),
-          )
-        }
-        onRemove={async (repo) => {
-          await api.remove(repo.id);
-          showToast(`${repo.name} removed from ${group.name}.`);
-          await onRefresh?.();
-        }}
-      />
-      <section
-        id={projectParts.board}
-        tabIndex={-1}
-        className="settings-group outline-none"
-        aria-labelledby="project-board-label"
-      >
-        <h3 id="project-board-label" className="group-label">
-          Board
-        </h3>
-        <BoardSection
-          api={api}
-          group={group}
-          open={open}
-          roadmapDates={open && tab === 'roadmap-dates'}
-          onChanged={boardChanged}
-          onConnected={async () => {
-            boardChanged();
-            await onRefresh?.();
-          }}
-          onDisconnected={async () => {
-            boardChanged();
-            await onRefresh?.();
-          }}
+    <section className="st-section" id="settings-project" aria-labelledby="settings-project-label">
+      <div className="st-section-head">
+        <h2 id="settings-project-label" className="st-project-title">
+          <IdentityMark kind="project" color={color} slot={false} />
+          {group.name}
+        </h2>
+        <IdentitySwatches
+          label={`Color of ${group.name}`}
+          value={chosen}
+          automatic={color}
+          automaticChoice
+          onChange={(next) => setIdentityOverride('project', group.name, next)}
+          className="st-swatches"
         />
-      </section>
-      <SettingsRows label="Remove project">
-        <SettingsRow id={projectParts.danger} label="Remove project" help="All files stay on disk.">
-          <Button variant="destructive-outline" size="sm" onClick={() => setRemoving(true)}>
-            Remove project…
-          </Button>
-        </SettingsRow>
-      </SettingsRows>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <MoreButton label={`Actions for ${group.name}`} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onSelect={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kalkidan-rename-project', { detail: { groupId: group.id } }),
+                )
+              }
+            >
+              Rename…
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!chosen}
+              onSelect={() => setIdentityOverride('project', group.name, null)}
+            >
+              Automatic color
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              id={projectParts.danger}
+              className={menuDestructiveClass}
+              onSelect={() => setRemoving(true)}
+            >
+              Remove project…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <div className="st-project-row">
+        <ul className="st-chips" id={projectParts.folders} aria-label={`Repos of ${group.name}`}>
+          {members.map((repo) => (
+            <li key={repo.id} className="st-chip" title={repo.path}>
+              <IdentityMark kind="repo" color={identity.repo(repo)} slot={false} />
+              <span className="st-chip-name">{repo.name}</span>
+              <button
+                type="button"
+                className="st-chip-remove"
+                aria-label={`Remove ${repo.name} from ${group.name}…`}
+                onClick={() => {
+                  setError('');
+                  setRemovingRepo(repo);
+                }}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+          <li>
+            <button
+              type="button"
+              className="st-chip st-chip-add"
+              aria-label="Add repo…"
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent('kalkidan-add-code-folder', { detail: { groupId: group.id } }),
+                )
+              }
+            >
+              <Plus aria-hidden="true" />
+            </button>
+          </li>
+        </ul>
+        <button
+          type="button"
+          className="st-chip st-board-chip"
+          aria-expanded={boardOpen}
+          aria-controls={projectParts.board}
+          onClick={() => setBoardOpen((value) => !value)}
+        >
+          <SquareKanban aria-hidden="true" />
+          {boardTitle || 'Connect board'}
+        </button>
+      </div>
+      {error && !removing && !removingRepo && (
+        <p role="alert" className="field-error">
+          {error}
+        </p>
+      )}
+      {boardOpen && (
+        <div id={projectParts.board} className="st-board" tabIndex={-1}>
+          <BoardSection
+            api={api}
+            group={group}
+            open={open}
+            roadmapDates={open && tab === 'roadmap-dates'}
+            onChanged={boardChanged}
+            onConnected={async () => {
+              boardChanged();
+              await onRefresh?.();
+            }}
+            onDisconnected={async () => {
+              boardChanged();
+              await onRefresh?.();
+            }}
+          />
+        </div>
+      )}
+      <ConfirmDialog
+        open={!!removingRepo}
+        title={`Remove ${removingRepo?.name || 'the repo'} from ${group.name}?`}
+        description="Kalkidan stops showing it. The folder and its files stay on disk."
+        confirmLabel="Remove repo"
+        destructive
+        busy={busy}
+        onCancel={() => setRemovingRepo(undefined)}
+        onConfirm={() => void removeRepo()}
+      >
+        {error && (
+          <p role="alert" className="field-error">
+            {error}
+          </p>
+        )}
+      </ConfirmDialog>
       <ConfirmDialog
         open={removing}
         title={`Remove ${group.name}?`}
@@ -220,7 +310,7 @@ export function ProjectSettingsPanel({
           </p>
         )}
       </ConfirmDialog>
-    </div>
+    </section>
   );
 }
 

@@ -22,11 +22,11 @@ test('reopening an uncertain project creation resumes its original request', asy
     };
   });
   await page.goto('/');
-  // Without projects, the Projects page offers "New empty project".
+  // Without projects, the window shows the new chat composer. The Projects root of the tree
+  // has "New project".
   const newProject = page
-    .getByRole('main')
-    .getByRole('button', { name: /^New (empty )?project$/ })
-    .first();
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'New project', exact: true });
   await newProject.click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog

@@ -1,72 +1,89 @@
 import {
-  StatusMark,
   activityKey,
-  strongestActivity,
+  answerApproval,
+  itemStatusOf,
   useActivityState,
   useChatStatus,
   type SessionActivityState,
 } from './activity-dot';
-import { projectMenuActions, TreeActionsMenu, TreeContextMenu } from './tree-context-menu';
-import { projectSessions, sessionRepo } from '../lib/session-repository';
+import {
+  projectMenuActions,
+  TreeActionsMenu,
+  TreeContextMenu,
+  type TreeAction,
+} from './tree-context-menu';
+import { sessionRepo } from '../lib/session-repository';
 import { errorMessage } from '../lib/errors';
 import { CreateProject } from './create-project';
-import { openProjectPage } from './project-tabs';
+import { openProjectSettings } from './settings-dialog';
 import { trackerConnection } from '../domain/tracker';
-import { useNeedsYou } from './project-overview';
 import { AddRepository } from './add-repository';
 import { ChatActionsDropdown, ChatContextMenu } from './chat-action-menu';
 import { useChatListActions } from './chat-list-actions';
-import { viewArchivedSessions } from './session-browser';
 import { Hint } from './hint';
 import { plural, shortcutLabel } from '../lib/platform';
 import { interfaceConfig } from '../config/interface';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  ChevronDown,
-  ChevronRight,
-  Eye,
-  Inbox,
-  LayoutGrid,
-  Loader2,
-  MessageSquare,
-  Plus,
-  SquarePen,
-} from 'lucide-react';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
-import { agentLabel } from '../config/agents';
+  getIdentityOverride,
+  setIdentityOverride,
+  strongestStatus,
+  type IdentityColor,
+  type IdentityKind,
+  type ItemStatus,
+} from '../domain/identity';
+import {
+  subagentsOf,
+  type Subagent,
+  type WorkspaceIdentity,
+} from '../hooks/use-workspace-identity';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type HTMLAttributes,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+} from 'react';
+import { AppWindow, ChevronDown, ChevronRight, Loader2, Plus, SquarePen } from 'lucide-react';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
+import { IdentityMark } from './ui/identity-mark';
+import { StatusGlyph } from './ui/status-glyph';
 import { NavRow } from './ui/nav-row';
 import { showToast } from './ui/toast';
 import { RenameDialog } from './session-actions';
+import { ProjectUsageContextMenuItem } from './project-usage';
+import type { ChatMenuGroup, ChatMenuItem } from '../domain/chat-actions';
 import type { API, Project, ProjectGroup, Session, RemoteHost, TrackerItem } from '../types';
 
-const collapsedKey = 'kalkidan-collapsed-projects';
-/** Each project shows its most recent chats in the sidebar. */
+/** The rows that the user opened or closed. The others use their default. */
+const openKey = 'kalkidan-tree-open';
+/** Each code folder shows its latest chats. "Show more" shows the others. */
 const recentLimit = interfaceConfig.recentChats;
-function savedCollapsed(key = collapsedKey) {
+function savedOpen(): Record<string, boolean> {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(key) || '[]');
-    return new Set(Array.isArray(value) ? value.filter((id) => typeof id === 'string') : []);
+    const value: unknown = JSON.parse(localStorage.getItem(openKey) || '{}');
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, boolean>)
+      : {};
   } catch {
-    return new Set<string>();
+    return {};
   }
 }
-// The row paints hover, selection and the focus ring. Its main button only holds the content.
-const rowButton =
-  'tree-row-button min-w-0 flex-1 justify-start gap-2.5 px-0 font-normal hover:bg-transparent focus-visible:ring-0 has-[>svg]:px-0';
-// A chat row is 32px high, like every sidebar row. Its button has the same height.
-const childButton = rowButton + ' h-8';
 const titleOf = (session: Session) => session.organization?.title || session.title;
 const sameSession = (a: Session | null | undefined, b: Session) =>
   !!a && a.agent === b.agent && a.id === b.id;
-/** A saved GitHub view that the user pinned to the sidebar. */
-export interface PinnedView {
-  id: string;
-  name: string;
+/** The status glyph of a child run, from the words of the snapshot. */
+function subagentStatus(child: Subagent): ItemStatus | null {
+  const value = (child.status || '').toLowerCase();
+  if (/run|work|progress|active/.test(value)) return 'working';
+  if (/wait|approv|question|input/.test(value)) return 'needs-you';
+  if (/fail|error|refus/.test(value)) return 'failed';
+  return null;
 }
-/** The main buttons of the visible nav rows and tree rows, in order. */
-const rowSelector = '.tree-row-button, .nav-row-main';
+/** The main buttons of the visible tree rows, in order. */
+const rowSelector = '.tree-row-button, .nav-row-main, .tree-root-button';
 const isRow = (element: HTMLElement) => element.matches(rowSelector);
 function treeRows(tree: HTMLElement) {
   return [...tree.querySelectorAll<HTMLElement>(rowSelector)].filter(
@@ -82,68 +99,185 @@ export interface CloneProgress {
   name: string;
   groupId?: string;
 }
+
+/**
+ * One row of the tree: a chevron column, the identity mark, the name, an optional muted meta
+ * (the branch of a code folder), the status glyph and the ⋯ menu. The depth sets the indent:
+ * 16px for each level.
+ */
+function TreeRow({
+  depth,
+  kind,
+  color,
+  label,
+  title,
+  meta,
+  status,
+  statusLabel,
+  open,
+  expandable,
+  selected,
+  current,
+  rowKey,
+  parentKey,
+  name,
+  toggleLabel,
+  onToggle,
+  onClick,
+  onDoubleClick,
+  onKeyDown,
+  trailing,
+  menu,
+  className,
+  ...rest
+}: Omit<HTMLAttributes<HTMLDivElement>, 'onClick' | 'onDoubleClick' | 'onKeyDown' | 'title'> & {
+  ref?: Ref<HTMLDivElement>;
+  depth: number;
+  kind: IdentityKind;
+  color: IdentityColor;
+  label: ReactNode;
+  title?: string;
+  meta?: ReactNode;
+  status?: ItemStatus | null;
+  /** The accessible name of the status glyph, such as the reason of a failed run. */
+  statusLabel?: string;
+  open?: boolean;
+  expandable?: boolean;
+  selected?: boolean;
+  /** aria-current of the main button. */
+  current?: boolean;
+  rowKey: string;
+  parentKey?: string;
+  /** The accessible name of the main button. */
+  name: string;
+  toggleLabel?: string;
+  onToggle?: () => void;
+  onClick: () => void;
+  onDoubleClick?: () => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLButtonElement>) => void;
+  /** Icons after the name, such as the window mark. */
+  trailing?: ReactNode;
+  menu?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      {...rest}
+      className={
+        'tree-row' +
+        (selected ? ' selected id-tint-sidebar' : '') +
+        (className ? ' ' + className : '')
+      }
+      data-kind={kind}
+      data-depth={depth}
+      style={{ '--depth': depth, '--id': `var(--id-${color})` } as CSSProperties}
+    >
+      <span className="tree-chevron">
+        {expandable && (
+          <button
+            type="button"
+            className="tree-toggle"
+            tabIndex={-1}
+            aria-label={toggleLabel}
+            aria-expanded={!!open}
+            onClick={onToggle}
+          >
+            {open ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+          </button>
+        )}
+      </span>
+      <button
+        type="button"
+        className="tree-row-button"
+        data-key={rowKey}
+        data-parent={parentKey}
+        data-expandable={expandable ? '' : undefined}
+        aria-expanded={expandable ? !!open : undefined}
+        aria-label={name}
+        aria-current={current ? 'page' : undefined}
+        title={title}
+        onClick={onClick}
+        onDoubleClick={onDoubleClick}
+        onKeyDown={onKeyDown}
+      >
+        <IdentityMark kind={kind} color={color} />
+        <span className="tree-label">{label}</span>
+        {meta && <span className="tree-meta">{meta}</span>}
+      </button>
+      {trailing}
+      <StatusGlyph status={status} label={statusLabel} className="tree-status" />
+      {menu}
+    </div>
+  );
+}
+
 export function ProjectTree({
   api,
-  repos,
   allRepos,
   groups,
   sessions,
-  selected,
+  identity,
   activeGroup,
   activeSession,
   busy,
   hosts = [],
-  onSelect,
-  onResume,
+  scope,
+  windowed = [],
+  projectsCurrent = false,
+  onProjects,
   onProject,
-  onProjectChats,
-  onOverview,
-  onAllSessions,
-  overviewCurrent = false,
-  allSessionsCurrent = false,
+  onOpenWindow,
+  onFocusWindow,
+  onResume,
+  onOpenSubagent,
   taskOf,
   onOpenTask,
   onSessionCommand,
-  pinnedViews = {},
-  onOpenView,
-  onUnpinView,
-  run,
-  onNotice,
   onRefresh,
-  activity = {},
+  onNotice,
   sessionActivity = {},
   openChats = [],
   cloning = [],
   addFolderRequest,
   onNewChat,
   onNewChatIn,
-  onNewTaskIn,
-  onNewPageIn,
-  onWaiting,
-  waitingCurrent = false,
-  onUsage,
-  query = '',
+  repoActions,
+  usage,
 }: {
-  /** Starts a new chat where the user works now. The top row of the sidebar runs it. */
-  onNewChat?: () => void;
-  /** Starts a new chat in a project, from the project menu. */
-  onNewChatIn?: (group: ProjectGroup) => void;
-  /** Opens New task in a project, from the project menu. */
-  onNewTaskIn?: (group: ProjectGroup) => void;
-  /** Makes a new doc page in a project, from the project menu. */
-  onNewPageIn?: (group: ProjectGroup) => void;
-  /**
-   * Opens the one "Waiting for you" page. The row is the last nav row. Its count shows how many
-   * chats wait for the user.
-   */
-  onWaiting?: () => void;
-  waitingCurrent?: boolean;
-  /** Opens the Usage sheet of a project, from the project menu. */
-  onUsage?: (group: ProjectGroup) => void;
+  api: API;
+  allRepos: Project[];
+  groups: ProjectGroup[];
+  /** The chats, with the drafts that are not saved yet. */
+  sessions: Session[];
+  identity: WorkspaceIdentity;
+  activeGroup?: string | null;
+  activeSession?: Session | null;
+  busy: boolean;
+  hosts?: RemoteHost[];
+  /** In a project window: the project. The tree then starts at its code folders. */
+  scope?: string;
+  /** Projects that show in their own window. Their rows stay closed here. */
+  windowed?: string[];
+  /** True when the Projects page shows. */
+  projectsCurrent?: boolean;
+  /** Opens the Projects page: the root of the tree. */
+  onProjects?: () => void;
+  onProject: (group: ProjectGroup) => void;
+  /** Opens a project in its own window: double-click or "Open in new window". */
+  onOpenWindow?: (group: ProjectGroup) => void;
+  /** Moves the window of a project to the front. */
+  onFocusWindow?: (group: ProjectGroup) => void;
+  onResume: (session: Session) => void;
+  /** Opens the chat of a subagent at that subagent. */
+  onOpenSubagent?: (session: Session, subagent: Subagent) => void;
+  /** The board item that a chat works on. */
+  taskOf?: (session: Session) => TrackerItem | undefined;
+  onOpenTask?: (groupId: string, itemId: string) => void;
+  /** Runs a session command, such as "session-commit", in a chat. Opens the chat first. */
+  onSessionCommand?: (command: string, session: Session) => void;
   /** Reloads the snapshot without a busy state. */
   onRefresh: () => Promise<unknown>;
-  /** Background session state for each repository ID. */
-  activity?: Record<string, SessionActivityState>;
+  onNotice?: (message: string, error?: boolean) => void;
   /** Background state of open sessions, by `activityKey`. */
   sessionActivity?: Record<string, SessionActivityState>;
   /** Chats that are open in this window, also in the background. */
@@ -152,38 +286,14 @@ export function ProjectTree({
   cloning?: CloneProgress[];
   /** Each new request opens the Add code folders dialog for that project, at its source. */
   addFolderRequest?: { groupId: string; at: number; source?: 'github' | 'local' };
-  /** The sidebar search text. The empty search message shows only with a query. */
-  query?: string;
-  onNotice?: (message: string, error?: boolean) => void;
-  onOverview: () => void;
-  onAllSessions?: () => void;
-  overviewCurrent?: boolean;
-  allSessionsCurrent?: boolean;
-  /** Opens the list of all chats of a project. Without it, "Show all chats" opens the project. */
-  onProjectChats?: (group: ProjectGroup) => void;
-  /** The board item that a chat works on. Rows show its number, such as "#12". */
-  taskOf?: (session: Session) => TrackerItem | undefined;
-  onOpenTask?: (groupId: string, itemId: string) => void;
-  /** Runs a session command, such as "session-commit", in a chat. Opens the chat first. */
-  onSessionCommand?: (command: string, session: Session) => void;
-  /** Saved GitHub views pinned to the sidebar, by project ID. */
-  pinnedViews?: Record<string, PinnedView[]>;
-  onOpenView?: (group: ProjectGroup, view: PinnedView) => void;
-  onUnpinView?: (group: ProjectGroup, view: PinnedView) => void;
-  hosts?: RemoteHost[];
-  api: API;
-  repos: Project[];
-  allRepos: Project[];
-  groups: ProjectGroup[];
-  sessions: Session[];
-  selected: string;
-  activeGroup?: string | null;
-  activeSession?: Session | null;
-  busy: boolean;
-  onProject: (group: ProjectGroup) => void;
-  onSelect: (repo: Project) => void;
-  onResume: (session: Session) => void;
-  run: (action: () => Promise<unknown>) => Promise<void>;
+  /** Starts a new chat where the user works now. */
+  onNewChat?: () => void;
+  /** Starts a new chat in a project, or in one code folder. */
+  onNewChatIn?: (group: ProjectGroup, repo?: Project) => void;
+  /** The menu of a code folder row. */
+  repoActions?: (repo: Project) => TreeAction[];
+  /** The props of the Usage row of the project menu. */
+  usage?: { sessions: Session[]; repos: Project[] };
 }) {
   const [renaming, setRenaming] = useState<ProjectGroup | null>(null);
   const [reconnecting, setReconnecting] = useState('');
@@ -203,22 +313,13 @@ export function ProjectTree({
     openChats.find((chat) => sameSession(chat.session, session))?.state ||
     sessionActivity[activityKey(session.agent, session.id)] ||
     published.find((item) => item.agent === session.agent && item.id === session.id)?.state;
-  /**
-   * Work in progress or a wait for the user, then a failed or refused latest run, then a
-   * finished run that the user did not see.
-   */
-  const statusOf = (session: Session) => chatStatus(session, running(session));
+  /** Working, needs you or failed, or no glyph. */
+  const statusOf = (session: Session) => itemStatusOf(chatStatus(session, running(session))?.state);
   const chatMenus = useChatListActions({
     api,
     onResume,
     onSessionCommand,
     onChanged: () => void onRefresh(),
-    onViewArchived: (session) => {
-      const repo = sessionRepo(session, allRepos);
-      if (!repo) return;
-      viewArchivedSessions(repo.id);
-      onSelect(repo);
-    },
     onOpenTask: onOpenTask
       ? (session) => {
           const task = taskOf?.(session);
@@ -242,8 +343,30 @@ export function ProjectTree({
       };
     },
   });
+  /** The chat menu, with Allow and Deny first while the chat waits for an approval. */
+  function chatMenu(session: Session) {
+    const menu = chatMenus.menuFor(session);
+    if (running(session) !== 'approval') return menu;
+    const answer = (allow: boolean) => ({
+      id: (allow ? 'allow' : 'deny') as ChatMenuItem['id'],
+      label: allow ? 'Allow' : 'Deny',
+      group: menu.groups[0]?.group as ChatMenuItem['group'],
+      disabled: false,
+      definition: {
+        run: () => answerApproval(session, allow),
+      } as unknown as ChatMenuItem['definition'],
+    });
+    const groups: ChatMenuGroup[] = [
+      {
+        group: menu.groups[0]?.group as ChatMenuGroup['group'],
+        items: [answer(true), answer(false)],
+      },
+      ...menu.groups,
+    ];
+    return { groups, run: menu.run };
+  }
   const [creating, setCreating] = useState(false);
-  // The project section of the one Settings window. The shell opens it.
+  // The Settings page at the project. The shell opens it.
   const openSettings = (group: ProjectGroup) =>
     window.dispatchEvent(
       new CustomEvent('kalkidan-open-project-settings', { detail: { groupId: group.id } }),
@@ -260,140 +383,53 @@ export function ProjectTree({
     window.addEventListener('kalkidan-rename-project', onRename);
     return () => window.removeEventListener('kalkidan-rename-project', onRename);
   }, []);
-  const [collapsed, setCollapsed] = useState(savedCollapsed);
-  function toggleGroup(id: string, open: boolean) {
-    setCollapsed((current) => {
-      const next = new Set(current);
-      if (open) next.delete(id);
-      else next.add(id);
+  // Rows that the user opened or closed. Other rows open by their default.
+  const [opened, setOpened] = useState(savedOpen);
+  function setRowOpen(key: string, open: boolean) {
+    setOpened((current) => {
+      const next = { ...current, [key]: open };
       try {
-        localStorage.setItem(collapsedKey, JSON.stringify([...next]));
+        localStorage.setItem(openKey, JSON.stringify(next));
       } catch {
         /* Optional preference. */
       }
       return next;
     });
   }
-  /** One chat row: in Pinned, or under its project. */
-  function sessionRow(session: Session, kind: 'pinned' | 'recent', folder?: string) {
-    const title = titleOf(session);
-    const current = sameSession(activeSession, session);
-    // A new chat that has no first message yet. It stays open while the user is on other pages.
-    const draft = session.id.startsWith('draft-');
-    const task = taskOf?.(session);
-    const menu = chatMenus.menuFor(session);
-    return (
-      <ChatContextMenu
-        key={kind + session.agent + session.id}
-        groups={menu.groups}
-        onRun={menu.run}
-      >
-        <div
-          className={
-            'tree-row session-row row-hover row-focus' +
-            (kind === 'recent' ? ' tree-session-row' : ' tree-top-row pinned-session-row') +
-            (current ? ' selected row-selected' : '')
-          }
-        >
-          <Button
-            variant="ghost"
-            className={kind === 'recent' ? childButton : rowButton}
-            // The title gets the full row. The agent and the code folder show in the tooltip
-            // only: the project row above gives the context.
-            title={[title, agentLabel(session.agent), folder].filter(Boolean).join(' · ')}
-            aria-label={kind === 'pinned' ? `Resume pinned ${title}` : `Chat: ${title}`}
-            aria-current={current ? 'page' : undefined}
-            onClick={() => onResume(session)}
-          >
-            {/* The status mark replaces the agent icon. It is before the title, so the ⋯
-                button at the end never hides it. */}
-            <StatusMark {...statusOf(session)} draft={draft} />
-            <span className="tree-label">{title}</span>
-            {task?.number && (
-              <span className="tree-task-number" title={`Task #${task.number}: ${task.title}`}>
-                #{task.number}
-              </span>
-            )}
-          </Button>
-          {/* Only … shows on hover, over the end of the title. Pin is in its menu. */}
-          <ChatActionsDropdown
-            size="xs"
-            className="tree-row-menu tree-row-overlay"
-            label={`${title} actions`}
-            groups={menu.groups}
-            onRun={menu.run}
-          />
-        </div>
-      </ChatContextMenu>
-    );
-  }
-  /** The recent chats of a project, newest first. Pinned chats show once, in Pinned. */
-  function projectChats(group: ProjectGroup) {
-    const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
-    const all = projectSessions(sessions, group, allRepos);
-    const recent = all.filter((s) => !s.organization?.pinned).slice(0, recentLimit);
-    // A draft is not saved until its first message. It shows first while it is open, so the
-    // user can go back to its unsent text, and when its launch was refused or failed. It does
-    // not count as a chat of the project.
-    const unsaved = sessions.filter((s) => {
-      const outcome = draftOutcomes[activityKey(s.agent, s.id)]?.outcome;
-      return (
-        s.id.startsWith('draft-') &&
-        (outcome === 'refused' ||
-          outcome === 'failed' ||
-          openChats.some((chat) => sameSession(chat.session, s))) &&
-        group.repoIds.includes(sessionRepo(s, allRepos)?.id || '')
-      );
-    });
-    // The code folder shows only when the project has more than one.
-    const folderOf = (session: Session) =>
-      members.length > 1 ? sessionRepo(session, allRepos)?.name : undefined;
-    return [
-      ...unsaved.map((session) => sessionRow(session, 'recent', folderOf(session))),
-      ...recent.map((session) => sessionRow(session, 'recent', folderOf(session))),
-      ...(all.length > recent.length
-        ? [
-            <div
-              key={group.id + ':more'}
-              className="tree-row tree-session-row tree-more-row row-hover row-focus"
-            >
-              <Button
-                variant="ghost"
-                className={childButton}
-                title={`See all chats of ${group.name}`}
-                onClick={() => (onProjectChats || onProject)(group)}
-              >
-                <span className="status-mark" aria-hidden="true" />
-                <span className="tree-label">Show all {plural(all.length, 'chat')}</span>
-              </Button>
-            </div>,
-          ]
-        : []),
-    ];
-  }
-  const pinned = sessions.filter(
-    (s) =>
-      s.organization?.pinned &&
-      !s.organization.archived &&
-      repos.some((r) => sessionRepo(s, allRepos)?.id === r.id),
-  );
-  const views = groups.flatMap((group) =>
-    (pinnedViews[group.id] || []).map((view) => ({ group, view })),
-  );
-  const waiting = useNeedsYou(sessions, allRepos).length;
+  // Code folders whose chats all show.
+  const [showAll, setShowAll] = useState<Set<string>>(() => new Set());
+  // The branch of each local code folder, for the muted text after its name.
+  const [branches, setBranches] = useState<Record<string, string>>({});
+  const asked = useRef(new Set<string>());
+  useEffect(() => {
+    if (typeof api.workingStatus !== 'function') return;
+    for (const repo of allRepos) {
+      if (repo.hostId || asked.current.has(repo.id)) continue;
+      asked.current.add(repo.id);
+      Promise.resolve()
+        .then(() => api.workingStatus(repo.id))
+        .then((status) => {
+          if (status?.branch) setBranches((current) => ({ ...current, [repo.id]: status.branch }));
+        })
+        .catch(() => {
+          // The row shows no branch. Ask again with the next snapshot.
+          asked.current.delete(repo.id);
+        });
+    }
+  }, [api, allRepos]);
   const showAddFolder = (group: ProjectGroup) =>
     setAddFolder((current) => ({ groupId: group.id, at: (current?.at || 0) + 1 }));
   // The one project menu. The project header has the same items in the same order.
   function projectActions(group: ProjectGroup, host?: RemoteHost) {
     return projectMenuActions({
+      projectName: group.name,
       busy,
+      onOpenWindow: onOpenWindow && !scope ? () => onOpenWindow(group) : undefined,
       onNewChat: () => (onNewChatIn ? onNewChatIn(group) : onProject(group)),
-      onNewTask: () => (onNewTaskIn ? onNewTaskIn(group) : openProjectPage(group.id, 'tasks')),
-      onNewPage: () => (onNewPageIn ? onNewPageIn(group) : openProjectPage(group.id, 'knowledge')),
       onAddFolder: () => showAddFolder(group),
       onRename: () => setRenaming(group),
-      onUsage: onUsage ? () => onUsage(group) : undefined,
       onSettings: () => openSettings(group),
+      onRemove: () => openProjectSettings(group.id, 'danger'),
       reconnect:
         host && host.status !== 'connected'
           ? {
@@ -418,27 +454,25 @@ export function ProjectTree({
       setReconnecting('');
     }
   }
-  const searching = !!query.trim();
   const treeRef = useRef<HTMLDivElement>(null);
   // The row that has the one tab stop of the tree. The arrow keys move it.
   const activeRow = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const tree = treeRef.current;
     if (!tree) return;
-    // Row actions (pin, menu, add) are reachable with the context menu key.
+    // Row actions (menu, add, toggle) are reachable with the context menu key.
     for (const control of tree.querySelectorAll<HTMLElement>(
-      '.tree-row-menu, .tree-row-action, .tree-toggle, .tree-row button:not(.tree-row-button)',
+      '.tree-row-menu, .tree-row-action, .tree-toggle, .tree-window',
     ))
       control.tabIndex = -1;
     const rows = treeRows(tree);
     const active =
       (activeRow.current && rows.includes(activeRow.current) && activeRow.current) ||
       rows.find((row) => row.getAttribute('aria-current') === 'page') ||
-      rows.find((row) => row.getAttribute('aria-current')) ||
       rows[0];
     for (const row of rows) row.tabIndex = row === active ? 0 : -1;
   });
-  function moveFocus(row: HTMLElement | undefined) {
+  function moveFocus(row: HTMLElement | undefined | null) {
     if (!row) return;
     activeRow.current = row;
     for (const item of treeRows(treeRef.current!)) item.tabIndex = item === row ? 0 : -1;
@@ -449,27 +483,326 @@ export function ProjectTree({
     if (!isRow(target) || event.altKey || event.metaKey) return;
     const rows = treeRows(treeRef.current!);
     const index = rows.indexOf(target);
-    const groupElement = target.closest<HTMLElement>('.project-group');
-    const groupId = groupElement?.dataset.group;
-    const projectRow = target.classList.contains('project-select');
-    const expanded = groupId ? !collapsed.has(groupId) : false;
+    const key = target.dataset.key;
+    const expandable = target.dataset.expandable !== undefined;
+    const expanded = target.getAttribute('aria-expanded') === 'true';
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       moveFocus(rows[index + (event.key === 'ArrowDown' ? 1 : -1)]);
     } else if (event.key === 'Home' || event.key === 'End') {
       event.preventDefault();
       moveFocus(event.key === 'Home' ? rows[0] : rows[rows.length - 1]);
-    } else if (event.key === 'ArrowRight') {
+    } else if (event.key === 'ArrowRight' && key) {
       event.preventDefault();
-      if (projectRow && groupId && !expanded) toggleGroup(groupId, true);
-      else if (projectRow) moveFocus(rows[index + 1]);
-    } else if (event.key === 'ArrowLeft') {
+      if (expandable && !expanded) setRowOpen(key, true);
+      else if (expandable) moveFocus(rows[index + 1]);
+    } else if (event.key === 'ArrowLeft' && key) {
       event.preventDefault();
-      if (projectRow && groupId && expanded) toggleGroup(groupId, false);
-      else if (!projectRow && groupElement)
-        moveFocus(groupElement.querySelector<HTMLElement>('.project-select') || undefined);
+      if (expandable && expanded) setRowOpen(key, false);
+      else if (target.dataset.parent)
+        moveFocus(
+          treeRef.current!.querySelector<HTMLElement>(
+            `.tree-row-button[data-key="${CSS.escape(target.dataset.parent)}"]`,
+          ),
+        );
     }
   }
+  const activeRepo = activeSession ? sessionRepo(activeSession, allRepos) : undefined;
+  /** The chats of a code folder that the tree shows: open drafts first, then newest first. */
+  function repoSessions(repo: Project) {
+    const own = (s: Session) => sessionRepo(s, allRepos)?.id === repo.id;
+    const drafts = sessions.filter((s) => {
+      const outcome = draftOutcomes[activityKey(s.agent, s.id)]?.outcome;
+      return (
+        s.id.startsWith('draft-') &&
+        own(s) &&
+        (outcome === 'refused' ||
+          outcome === 'failed' ||
+          openChats.some((chat) => sameSession(chat.session, s)))
+      );
+    });
+    const saved = sessions
+      .filter((s) => !s.id.startsWith('draft-') && !s.organization?.archived && own(s))
+      .sort(
+        (a, b) =>
+          Number(!!b.organization?.pinned) - Number(!!a.organization?.pinned) ||
+          (b.updatedAt || '').localeCompare(a.updatedAt || ''),
+      );
+    return { drafts, saved };
+  }
+  function sessionRows(session: Session, depth: number, parentKey: string, repo: Project) {
+    const key = 'session:' + activityKey(session.agent, session.id);
+    const children = subagentsOf(session);
+    const info = chatStatus(session, running(session));
+    const own = itemStatusOf(info?.state);
+    const childStatus = children.map(subagentStatus);
+    const current = sameSession(activeSession, session);
+    const open = opened[key] ?? (current || childStatus.includes('working'));
+    const title = titleOf(session) || 'New chat';
+    const task = taskOf?.(session);
+    const menu = chatMenu(session);
+    const color = identity.session(session);
+    const row = (
+      <ChatContextMenu key={key} groups={menu.groups} onRun={menu.run}>
+        <TreeRow
+          depth={depth}
+          kind="session"
+          color={color}
+          rowKey={key}
+          parentKey={parentKey}
+          label={title}
+          title={[title, task?.number ? `Task #${task.number}` : '', repo.name]
+            .filter(Boolean)
+            .join(' · ')}
+          name={`Chat: ${title}`}
+          status={open || !children.length ? own : strongestStatus([own, ...childStatus])}
+          statusLabel={open || !children.length ? info?.label : undefined}
+          expandable={children.length > 0}
+          open={open}
+          toggleLabel={`${open ? 'Hide' : 'Show'} the subagents of ${title}`}
+          onToggle={() => setRowOpen(key, !open)}
+          selected={current}
+          current={current}
+          className={session.id.startsWith('draft-') ? 'tree-row-draft' : undefined}
+          onClick={() => onResume(session)}
+          menu={
+            <ChatActionsDropdown
+              size="xs"
+              className="tree-row-menu"
+              label={`${title} actions`}
+              groups={menu.groups}
+              onRun={menu.run}
+            />
+          }
+        />
+      </ChatContextMenu>
+    );
+    if (!open || !children.length) return [row];
+    return [
+      row,
+      ...children.map((child) => (
+        <TreeRow
+          key={key + ':' + child.id}
+          depth={depth + 1}
+          kind="subagent"
+          color={identity.subagent(session, child.id)}
+          rowKey={key + ':' + child.id}
+          parentKey={key}
+          label={child.title}
+          meta={child.type}
+          title={[child.type, child.title, child.status, `Subagent of ${title}`]
+            .filter(Boolean)
+            .join(' · ')}
+          name={`Subagent: ${child.title}`}
+          status={subagentStatus(child)}
+          onClick={() => (onOpenSubagent ? onOpenSubagent(session, child) : onResume(session))}
+        />
+      )),
+    ];
+  }
+  function repoRows(repo: Project, group: ProjectGroup, depth: number, parentKey: string) {
+    const key = 'repo:' + repo.id;
+    const { drafts, saved } = repoSessions(repo);
+    const all = [...drafts, ...saved];
+    const contains = !!activeRepo && activeRepo.id === repo.id;
+    const busyChild = all.some((s) => statusOf(s));
+    // The newest chat by time, in the order of the snapshot (as latestInProject). Pinned chats
+    // sort first in `saved`, so saved[0] can be an older chat.
+    const newest = sessions
+      .filter((s) => saved.includes(s))
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
+    const latestInProject = sessions
+      .filter((s) => group.repoIds.includes(sessionRepo(s, allRepos)?.id || ''))
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))[0];
+    const open =
+      opened[key] ?? (contains || busyChild || (!!newest && sameSession(latestInProject, newest)));
+    const visible = showAll.has(repo.id) ? saved : saved.slice(0, recentLimit);
+    const rollup = strongestStatus(
+      all.flatMap((s) => [statusOf(s), ...subagentsOf(s).map(subagentStatus)]),
+    );
+    const actions = repoActions?.(repo) || [];
+    const row = (
+      <TreeContextMenu
+        key={key}
+        label={`${repo.name} actions`}
+        actions={actions}
+        disabled={!actions.length}
+      >
+        <TreeRow
+          depth={depth}
+          kind="repo"
+          color={identity.repo(repo)}
+          rowKey={key}
+          parentKey={parentKey}
+          label={repo.name}
+          title={repo.path}
+          meta={branches[repo.id]}
+          name={repo.name}
+          status={open ? null : rollup}
+          expandable={all.length > 0}
+          open={open && all.length > 0}
+          toggleLabel={`${open ? 'Collapse' : 'Expand'} ${repo.name}`}
+          onToggle={() => setRowOpen(key, !open)}
+          onClick={() => (all.length ? setRowOpen(key, !open) : onNewChatIn?.(group, repo))}
+          menu={
+            actions.length > 0 && (
+              <TreeActionsMenu
+                className="tree-row-menu"
+                label={`${repo.name} actions`}
+                actions={actions}
+              />
+            )
+          }
+        />
+      </TreeContextMenu>
+    );
+    if (!open || !all.length) return [row];
+    return [
+      row,
+      ...drafts.flatMap((s) => sessionRows(s, depth + 1, key, repo)),
+      ...visible.flatMap((s) => sessionRows(s, depth + 1, key, repo)),
+      ...(saved.length > visible.length
+        ? [
+            <div
+              key={key + ':more'}
+              className="tree-row tree-more-row"
+              style={{ '--depth': depth + 1 } as CSSProperties}
+            >
+              <span className="tree-chevron" />
+              <button
+                type="button"
+                className="tree-row-button"
+                data-key={key + ':more'}
+                data-parent={key}
+                onClick={() => setShowAll((current) => new Set(current).add(repo.id))}
+              >
+                <span className="identity-slot" aria-hidden="true" />
+                <span className="tree-label">
+                  Show {plural(saved.length - visible.length, 'more chat')}
+                </span>
+              </button>
+            </div>,
+          ]
+        : []),
+    ];
+  }
+  function projectRows(group: ProjectGroup) {
+    const key = 'project:' + group.id;
+    const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
+    const host = hosts.find((h) => h.id === group.hostId);
+    const elsewhere = windowed.includes(group.id);
+    const contains = !!activeRepo && group.repoIds.includes(activeRepo.id);
+    const open = !elsewhere && (opened[key] ?? (contains || activeGroup === group.id));
+    const projectCurrent = activeGroup === group.id && !activeSession;
+    const rollup = strongestStatus(
+      members.flatMap((repo) => {
+        const { drafts, saved } = repoSessions(repo);
+        return [...drafts, ...saved].flatMap((s) => [
+          statusOf(s),
+          ...subagentsOf(s).map(subagentStatus),
+        ]);
+      }),
+    );
+    const hostStatus = host?.status || 'disconnected';
+    const hostLabel = group.hostId
+      ? `SSH: ${host?.target || host?.name || 'remote host'} · ${hostStatus}` +
+        (host?.error ? ` · ${host.error}` : '')
+      : '';
+    const actions = projectActions(group, host);
+    const color = identity.project(group);
+    const usageRow = usage ? (
+      <ProjectUsageContextMenuItem
+        api={api}
+        group={group}
+        sessions={usage.sessions}
+        repos={usage.repos}
+      />
+    ) : undefined;
+    const clones = cloning.filter((clone) => clone.groupId === group.id);
+    const row = (
+      <TreeContextMenu
+        key={key}
+        label="Project actions"
+        actions={actions}
+        color={{
+          value: color,
+          chosen: !!getIdentityOverride('project', group.name),
+          onChange: (next) => setIdentityOverride('project', group.name, next),
+        }}
+        extra={usageRow}
+      >
+        <TreeRow
+          depth={0}
+          kind="project"
+          color={color}
+          rowKey={key}
+          label={group.name}
+          title={hostLabel ? `${group.name} · ${hostLabel}` : group.name}
+          meta={group.hostId ? 'SSH' : undefined}
+          name={group.name}
+          status={open ? null : rollup}
+          expandable
+          open={open}
+          toggleLabel={`${open ? 'Collapse' : 'Expand'} ${group.name}`}
+          onToggle={() =>
+            elsewhere && onFocusWindow ? onFocusWindow(group) : setRowOpen(key, !open)
+          }
+          selected={projectCurrent}
+          current={projectCurrent}
+          onClick={() => (elsewhere && onFocusWindow ? onFocusWindow(group) : onProject(group))}
+          onDoubleClick={onOpenWindow ? () => onOpenWindow(group) : undefined}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && event.shiftKey && onOpenWindow) {
+              event.preventDefault();
+              onOpenWindow(group);
+            }
+          }}
+          trailing={
+            elsewhere && (
+              <Hint label={`${group.name} is open in its own window`}>
+                <button
+                  type="button"
+                  className="tree-window"
+                  aria-label={`Show the ${group.name} window`}
+                  onClick={() => onFocusWindow?.(group)}
+                >
+                  <AppWindow aria-hidden="true" />
+                </button>
+              </Hint>
+            )
+          }
+          menu={
+            <TreeActionsMenu
+              className="tree-row-menu"
+              disabled={busy}
+              label={`Manage project ${group.name}`}
+              actions={actions}
+            />
+          }
+        />
+      </TreeContextMenu>
+    );
+    if (!open) return [row];
+    return [
+      row,
+      ...members.flatMap((repo) => repoRows(repo, group, 1, key)),
+      ...clones.map((clone) => (
+        <div
+          key={clone.id}
+          className="tree-row tree-cloning"
+          role="status"
+          style={{ '--depth': 1 } as CSSProperties}
+        >
+          <span className="tree-chevron" />
+          <span className="identity-slot">
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+          </span>
+          <span className="tree-label">Cloning {clone.name}…</span>
+        </div>
+      )),
+    ];
+  }
+  const scoped = scope ? groups.find((group) => group.id === scope) : undefined;
   return (
     <div
       ref={treeRef}
@@ -479,8 +812,7 @@ export function ProjectTree({
         if (isRow(event.target as HTMLElement)) activeRow.current = event.target as HTMLElement;
       }}
     >
-      {/* The nav rows. Their order never changes: "Waiting for you" is always the last. */}
-      {onNewChat && (
+      {onNewChat && !scope && (
         <NavRow
           className="tree-new-chat"
           icon={<SquarePen />}
@@ -493,212 +825,53 @@ export function ProjectTree({
           }
         />
       )}
-      <NavRow
-        icon={<LayoutGrid />}
-        label="Projects"
-        current={overviewCurrent}
-        onClick={onOverview}
-      />
-      {/* Before the first project, the lists are empty. Only Projects shows. */}
-      {onAllSessions && groups.length > 0 && (
-        <NavRow
-          icon={<MessageSquare />}
-          label="Chats"
-          current={allSessionsCurrent}
-          onClick={onAllSessions}
-        />
-      )}
-      {onWaiting && groups.length > 0 && (
-        <NavRow
-          className="tree-waiting"
-          icon={<Inbox />}
-          label="Waiting for you"
-          count={waiting || undefined}
-          current={waitingCurrent}
-          onClick={onWaiting}
-        />
-      )}
-      {(pinned.length > 0 || views.length > 0) && (
-        <section className="pinned-sessions" aria-labelledby="tree-pinned">
-          <h2 id="tree-pinned" className="group-label tree-heading">
-            Pinned
-          </h2>
-          {pinned.map((session) => sessionRow(session, 'pinned'))}
-          {views.map(({ group, view }) => (
-            <TreeContextMenu
-              key={'view:' + group.id + view.id}
-              label="View actions"
-              actions={[
-                { label: 'Open view', action: () => onOpenView?.(group, view) },
-                {
-                  label: 'Unpin view',
-                  separator: true,
-                  action: () => onUnpinView?.(group, view),
-                },
-              ]}
-            >
-              <div className="tree-row tree-top-row tree-view-row row-hover row-focus">
-                <Button
-                  variant="ghost"
-                  className={rowButton}
-                  title={`Saved GitHub view: ${view.name} · ${group.name}`}
-                  onClick={() => onOpenView?.(group, view)}
-                >
-                  <span className="tree-icon">
-                    <Eye className="size-3.5" />
-                  </span>
-                  <span className="tree-label has-secondary">{view.name}</span>
-                  <span className="tree-secondary">{group.name}</span>
-                </Button>
+      {scoped ? (
+        <div className="tree-scope" role="group" aria-label={`${scoped.name} code folders`}>
+          {allRepos
+            .filter((repo) => scoped.repoIds.includes(repo.id))
+            .flatMap((repo) => repoRows(repo, scoped, 0, ''))}
+          {cloning
+            .filter((clone) => clone.groupId === scoped.id)
+            .map((clone) => (
+              <div key={clone.id} className="tree-row tree-cloning" role="status">
+                <span className="tree-chevron" />
+                <span className="identity-slot">
+                  <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+                </span>
+                <span className="tree-label">Cloning {clone.name}…</span>
               </div>
-            </TreeContextMenu>
-          ))}
-        </section>
-      )}
-      {/* The heading always shows, so the tree does not move when a chat opens. */}
-      {groups.length > 0 && (
-        <div className="tree-heading tree-projects-heading">
-          <h2 className="group-label">Your projects</h2>
-          <Hint label="New project" shortcut={shortcutLabel(['mod', 'shift'], 'N')}>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="tree-row-action"
-              disabled={busy}
-              aria-label="New project"
-              onClick={() => setCreating(true)}
-            >
-              <Plus />
-            </Button>
-          </Hint>
+            ))}
         </div>
-      )}
-      {groups.map((group) => {
-        const members = allRepos.filter((repo) => group.repoIds.includes(repo.id));
-        const projectCurrent = activeGroup === group.id && !activeSession;
-        const activeRepo = activeSession ? sessionRepo(activeSession, allRepos) : undefined;
-        const host = hosts.find((h) => h.id === group.hostId);
-        const open = !collapsed.has(group.id);
-        const chatShows =
-          open &&
-          !!activeSession &&
-          projectSessions(sessions, group, allRepos)
-            .filter((s) => !s.organization?.pinned)
-            .slice(0, recentLimit)
-            .some((s) => sameSession(activeSession, s));
-        // The tree has one strong highlight. A project page, a code folder page, or a chat that
-        // does not show under the project selects the project row. A chat that shows under it
-        // selects the chat row, and the project row only gets its label in the foreground.
-        const containsCurrent = activeRepo
-          ? group.repoIds.includes(activeRepo.id)
-          : !activeGroup && members.some((repo) => selected === repo.id);
-        const rowSelected = projectCurrent || (containsCurrent && !chatShows);
-        const groupState = strongestActivity([
-          ...members.map((repo) => activity[repo.id]),
-          ...published
-            .filter((item) => group.repoIds.includes(sessionRepo(item, allRepos)?.id || ''))
-            .map((item) => item.state),
-        ]);
-        const actions = projectActions(group, host);
-        const clones = cloning.filter((clone) => clone.groupId === group.id);
-        const chats = projectChats(group);
-        const hostStatus = host?.status || 'disconnected';
-        const hostLabel = group.hostId
-          ? `SSH: ${host?.target || host?.name || 'remote host'} · ${hostStatus}` +
-            (host?.error ? ` · ${host.error}` : '')
-          : '';
-        return (
-          <Collapsible
-            className="project-group"
-            data-group={group.id}
-            open={open}
-            onOpenChange={(open) => toggleGroup(group.id, open)}
-            key={group.id}
-          >
-            <TreeContextMenu label="Project actions" actions={actions}>
-              <div
-                className={
-                  'tree-row tree-top-row project-group-heading row-hover row-focus' +
-                  (rowSelected
-                    ? ' selected row-selected'
-                    : containsCurrent
-                      ? ' contains-current'
-                      : '')
-                }
+      ) : (
+        <>
+          {/* The root of the tree. It opens the Projects page. */}
+          <div className={'tree-root' + (projectsCurrent ? ' selected' : '')}>
+            <button
+              type="button"
+              className="tree-root-button"
+              aria-current={projectsCurrent ? 'page' : undefined}
+              onClick={onProjects}
+            >
+              Projects
+            </button>
+            <Hint label="New project" shortcut={shortcutLabel(['mod', 'shift'], 'N')}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="tree-row-action"
+                disabled={busy}
+                aria-label="New project"
+                onClick={() => setCreating(true)}
               >
-                <CollapsibleTrigger asChild>
-                  <Button
-                    variant="bare"
-                    className="tree-toggle tree-icon"
-                    aria-label={`${open ? 'Collapse' : 'Expand'} ${group.name}`}
-                  >
-                    {open ? <ChevronDown /> : <ChevronRight />}
-                  </Button>
-                </CollapsibleTrigger>
-                <Button
-                  variant="ghost"
-                  className={'project-select ' + rowButton}
-                  title={hostLabel ? `${group.name} · ${hostLabel}` : group.name}
-                  aria-label={group.name}
-                  aria-current={projectCurrent ? 'page' : undefined}
-                  onClick={() => onProject(group)}
-                >
-                  <span className="tree-label">{group.name}</span>
-                  {group.hostId && (
-                    <Badge
-                      variant="outline"
-                      size="sm"
-                      className="project-host-badge"
-                      title={hostLabel}
-                      data-status={hostStatus}
-                    >
-                      <span
-                        className={
-                          'tree-host-dot' +
-                          (hostStatus === 'connected'
-                            ? ' host-connected'
-                            : hostStatus === 'error'
-                              ? ' host-error'
-                              : '')
-                        }
-                        aria-hidden="true"
-                      />
-                      SSH
-                    </Badge>
-                  )}
-                  {!open && groupState && (
-                    <span className="tree-group-mark">
-                      <StatusMark state={groupState} />
-                    </span>
-                  )}
-                </Button>
-                <TreeActionsMenu
-                  className="tree-row-menu"
-                  disabled={busy}
-                  label={`Manage project ${group.name}`}
-                  actions={actions}
-                />
-              </div>
-            </TreeContextMenu>
-            <CollapsibleContent className="project-group-children">
-              {chats}
-              {clones.map((clone) => (
-                <div key={clone.id} className="tree-row tree-cloning" role="status">
-                  <span className="status-mark">
-                    <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-                  </span>
-                  <span className="tree-label">Cloning {clone.name}…</span>
-                </div>
-              ))}
-            </CollapsibleContent>
-          </Collapsible>
-        );
-      })}
-      {/* Without projects, the page shows the only "New project" action. */}
-      {searching &&
-        !repos.some((repo) => groups.some((group) => group.repoIds.includes(repo.id))) && (
-          <p className="tree-no-match">No matching projects or code folders.</p>
-        )}
+                <Plus />
+              </Button>
+            </Hint>
+          </div>
+          <div className="tree-projects" role="group" aria-label="Projects">
+            {groups.flatMap((group) => projectRows(group))}
+          </div>
+        </>
+      )}
       {/* The dialog stays mounted, as it did when each project row had its own button. */}
       <AddRepository
         key={addFolder?.groupId}

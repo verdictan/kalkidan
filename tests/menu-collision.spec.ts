@@ -25,6 +25,8 @@ async function expectInsideWindow(page: Page) {
 test('project menu stays inside a short window and scrolls', async ({ page }) => {
   await page.setViewportSize({ width: 1276, height: 460 });
   await page.goto('/');
+  // The ⋯ button of a tree row shows when the pointer is on the row.
+  await page.locator('.tree-row[data-kind="project"]').first().hover();
   await page.getByRole('button', { name: 'Manage project Atlas', exact: true }).click();
   await expectInsideWindow(page);
   await page.keyboard.press('Escape');

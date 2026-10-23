@@ -7,7 +7,7 @@ import {
 import { safeProgramPath } from './agent-programs';
 import { recommendedRuntime, supportWindow } from './compatibility';
 import type { PolicyRecord, PolicyRegion, PolicyReview, ReviewDecision } from './policy-result';
-import { runtimeAnchor, settingsAnchors, type SettingsSection } from './settings-route';
+import { settingsAnchors, type SettingsSection } from './settings-route';
 
 /** Safe desktop state. Account and runtime credentials never cross renderer IPC. */
 export interface VerdictanAccount {
@@ -657,18 +657,18 @@ export function accountLabel(account?: Pick<VerdictanAccount, 'organizationName'
 }
 
 /**
- * Managed agent errors. The desktop and the runtime send a stable code, for example
- * `desktop.runtime_missing`. The backend error message is the plain text, then the code in
- * square brackets: "Managed agents are not set up. … [desktop.runtime_missing]". Read the code
- * with `managedErrorCode`. Show the message without the brackets, and never show a code alone.
+ * Gateway errors (internal name: managed agent errors). The desktop and the gateway runtime send
+ * a stable code, for example `desktop.runtime_missing`. The backend error message is the plain
+ * text, then the code in square brackets: "The Verdictan gateway is not installed on this
+ * computer. [desktop.runtime_not_found]". Read the code with `managedErrorCode`. Show the message
+ * without the brackets, and never show a code alone.
  *
- * `section` is the Settings section that fixes the error. 'runtime' is the managed runtime in
- * Settings › Computers. `retry` is true when the same action can work a second time without a
- * change.
+ * `section` is the older Settings section of the fix: 'computers' is the gateway runtime (it
+ * installs and repairs by itself, so the fix is "Try again"), 'agents' is the agent CLI in
+ * Settings › Tools. `retry` is true when the same action can work a second time without a change.
  *
- * There is no fallback to an unmanaged local agent. Each local chat starts through managed agents,
- * so the policy and the inference guard always apply. When managed agents are not set up, the chat
- * does not start, and the error tells the user to set them up.
+ * Each chat runs the detected agent CLI, and its model traffic goes through the Verdictan gateway,
+ * so the policy and the inference guard always apply.
  */
 export interface ManagedErrorInfo {
   message: string;
@@ -694,28 +694,29 @@ const signInClaude =
 export const managedErrors: Record<string, ManagedErrorInfo> = {
   'desktop.runtime_missing': {
     message:
-      'Managed agents are not ready on this computer. Kalkidan installs them by itself. Wait, then try again.',
+      'The Verdictan gateway is not ready on this computer. Kalkidan installs it by itself. Wait, then try again.',
     section: 'computers',
   },
   'desktop.remote_runtime_missing': {
-    message: 'Managed agents are not installed on this host. Install the runtime for this host.',
+    message:
+      'The Verdictan gateway is not ready on this host. Kalkidan installs it by itself. Wait, then try again.',
     section: 'computers',
   },
   'desktop.runtime_not_found': {
-    message: 'Managed agents are not set up on this computer.',
+    message: 'The Verdictan gateway is not installed on this computer.',
     section: 'computers',
   },
   'desktop.executable_invalid': {
-    message: 'The managed agents runtime is damaged. Install it again in Settings.',
+    message: 'The Verdictan gateway on this computer is damaged. Try again to repair it.',
     section: 'computers',
   },
-  'desktop.auth_required': { message: 'Sign in to managed agents.', section: 'account' },
+  'desktop.auth_required': { message: 'Sign in to Verdictan.', section: 'account' },
   'desktop.auth_expired': {
-    message: 'Your managed agents session expired. Sign in again.',
+    message: 'Your Verdictan sign-in expired. Sign in again.',
     section: 'account',
   },
   'desktop.account_invalid': {
-    message: 'The managed agents account is not valid. Sign in again.',
+    message: 'The Verdictan account is not valid. Sign in again.',
     section: 'account',
   },
   'desktop.identity_mismatch': {
@@ -735,11 +736,13 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.cancel_failed': { message: 'The sign-in did not stop. Check the status.', retry: true },
   'desktop.setup_invalid': {
-    message: 'The managed agents setup is not complete. Finish the setup in Settings.',
+    message:
+      'Your organization has no complete agent policy in Verdictan. Ask an organization administrator for help.',
     section: 'agents',
   },
   'desktop.setup_selection_required': {
-    message: 'Choose an agent or a policy, a connection and a model for managed agents.',
+    message:
+      'Your organization has no agent policy for this agent in Verdictan. Ask an organization administrator for help.',
     section: 'agents',
   },
   'desktop.setup_default_removed': {
@@ -747,8 +750,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'agents',
   },
   'desktop.setup_agent_unavailable': {
-    message:
-      'The agent of this computer is not available now. Change the agent in Settings › Computers.',
+    message: 'The agent of this computer is not available now. Choose another agent.',
     section: 'computers',
   },
   'desktop.agent_unavailable': {
@@ -791,16 +793,16 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.gateway_moved': {
     message:
-      'The managed gateway of this agent restarted on a new port. The chat stopped. Send a message to continue the chat.',
+      'The Verdictan gateway of this agent restarted on a new port. The chat stopped. Send a message to continue the chat.',
     retry: true,
   },
   'desktop.runtime_expired': {
-    message: 'Managed agents access for this computer expired. Renew it in Settings.',
+    message: 'Verdictan access for this computer expired. Try again.',
     section: 'computers',
   },
   'desktop.event_buffer_full': {
     message:
-      'The event buffer of managed agents is full. New requests stop until Verdictan receives the stored events. Check the network connection, then try again.',
+      'The event buffer of the Verdictan gateway is full. New requests stop until Verdictan receives the stored events. Check the network connection, then try again.',
     section: 'computers',
   },
   'desktop.clock_skew': {
@@ -809,28 +811,28 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'computers',
   },
   'desktop.invalid_runtime_credential': {
-    message: 'Managed agents access for this computer is not valid. Renew it in Settings.',
+    message: 'Verdictan access for this computer is not valid. Try again.',
     section: 'computers',
   },
   'desktop.host_revoked': {
-    message: 'This computer cannot run managed agents now. Connect it again in Settings.',
+    message: 'This computer cannot use the Verdictan gateway now. Sign in again.',
     section: 'computers',
   },
   'desktop.runtime_reconciliation_required': {
-    message: 'Managed agents must update their records. Check the status in Settings.',
+    message: 'The Verdictan gateway must update its records. Try again.',
     section: 'computers',
   },
   'desktop.runtime_version_unsupported': {
-    message: `Kalkidan does not support this Verdictan runtime version. Update the runtime to ${recommendedRuntime()} or later in Settings › Computers.`,
+    message: `Kalkidan does not support this Verdictan gateway version. Kalkidan updates it to ${recommendedRuntime()} or later by itself. Wait, then try again.`,
     section: 'computers',
   },
   'desktop.protocol_unsupported': {
-    message: `This Verdictan runtime does not support desktop protocol ${supportWindow.protocol.current}. Update the runtime and Kalkidan to their newest versions.`,
+    message: `This Verdictan gateway does not support desktop protocol ${supportWindow.protocol.current}. Update Kalkidan to its newest version.`,
     section: 'computers',
   },
   'desktop.agent_version_unsupported': {
     message:
-      'Kalkidan cannot confirm the version of the installed agent. Check the agent in Settings, then try again.',
+      'Kalkidan cannot confirm the version of the installed agent. Check the agent in Settings › Tools, then try again.',
     section: 'agents',
   },
   'desktop.codex_version_unsupported': {
@@ -854,31 +856,31 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'agents',
   },
   'desktop.resume_incompatible': {
-    message: 'Managed agents cannot continue this chat. Start a new chat.',
+    message: 'The Verdictan gateway cannot continue this chat. Start a new chat.',
   },
   'desktop.resume_binding_required': {
-    message: 'Managed agents cannot continue this chat. Start a new chat.',
+    message: 'The Verdictan gateway cannot continue this chat. Start a new chat.',
   },
   'desktop.resume_binding_invalid': {
-    message: 'Managed agents cannot continue this chat. Start a new chat.',
+    message: 'The Verdictan gateway cannot continue this chat. Start a new chat.',
   },
   'desktop.runtime_binding_mismatch': {
-    message: 'This chat belongs to a different managed agents setup. Start a new chat.',
+    message: 'This chat belongs to a different Verdictan setup. Start a new chat.',
   },
   'desktop.process_isolation_unavailable': {
-    message: 'This computer cannot keep the agent apart from other programs. Check the setup.',
+    message: 'This computer cannot keep the agent apart from other programs.',
     section: 'computers',
   },
   'desktop.isolation_scope_invalid': {
-    message: 'This computer cannot keep the agent apart from other programs. Check the setup.',
+    message: 'This computer cannot keep the agent apart from other programs.',
     section: 'computers',
   },
   'desktop.protected_pipe_unavailable': {
-    message: 'Managed agents cannot open a private connection on this computer. Check the setup.',
+    message: 'The Verdictan gateway cannot open a private connection on this computer.',
     section: 'computers',
   },
   'desktop.loopback_required': {
-    message: 'Managed agents need a local network connection that is not available.',
+    message: 'The Verdictan gateway needs a local network connection that is not available.',
     section: 'computers',
   },
   // Kalkidan does not try again by itself, because each try shows the keychain prompt again.
@@ -888,36 +890,38 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     retry: true,
   },
   'desktop.operation_in_progress': {
-    message: 'Another managed agents operation is running. Wait for it to finish, then try again.',
+    message:
+      'Another Verdictan gateway operation is running. Wait for it to finish, then try again.',
     retry: true,
   },
   'desktop.runtime_limit': {
-    message: 'Too many managed agent runs are open. Stop a chat, then try again.',
+    message: 'Too many agent runs are open. Stop a chat, then try again.',
     retry: true,
   },
   'desktop.runtime_already_owned': {
-    message: 'This chat already runs in managed agents. Wait, then try again.',
+    message: 'This chat already runs. Wait, then try again.',
     retry: true,
   },
   'desktop.connection_limit': {
-    message: 'Too many connections to managed agents are open. Try again.',
+    message: 'Too many connections to the Verdictan gateway are open. Try again.',
     retry: true,
   },
   'desktop.request_timeout': {
-    message: 'Managed agents did not reply in time. Try again.',
+    message: 'The Verdictan gateway did not reply in time. Try again.',
     retry: true,
   },
   'desktop.runtime_starting': {
-    message: 'Managed agents are starting. Wait, then try again.',
+    message: 'The Verdictan gateway is starting. Wait, then try again.',
     retry: true,
   },
-  'desktop.runtime_stopped': { message: 'Managed agents stopped. Try again.', retry: true },
+  'desktop.runtime_stopped': { message: 'The Verdictan gateway stopped. Try again.', retry: true },
   'desktop.operation_unsupported': {
-    message: 'The installed managed agents runtime cannot do this. Update the runtime.',
+    message:
+      'The installed Verdictan gateway cannot do this. Kalkidan updates it by itself. Wait, then try again.',
     section: 'computers',
   },
   'desktop.region_required': {
-    message: 'Select the EU or US region, then sign in to managed agents.',
+    message: 'Select the EU or US region, then sign in to Verdictan.',
     section: 'account',
   },
   'desktop.region_locked': {
@@ -925,24 +929,22 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'account',
   },
   'desktop.session_rejected': {
-    message: 'The managed agents service did not accept the sign-in. Sign in again.',
+    message: 'Verdictan did not accept the sign-in. Sign in again.',
     section: 'account',
   },
   'desktop.readiness_required': {
-    message:
-      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Computers, then try again.',
+    message: 'The Verdictan gateway check on the machine where work runs did not pass. Try again.',
     section: 'computers',
     retry: true,
   },
   'desktop.readiness_failed': {
-    message:
-      'The managed agents check on the machine where work runs did not pass. Check the status in Settings › Computers, then try again.',
+    message: 'The Verdictan gateway check on the machine where work runs did not pass. Try again.',
     section: 'computers',
     retry: true,
   },
   'desktop.readiness_blocked': {
     message:
-      'The managed gateway on the machine where work runs is not ready. Try again in a moment. If it continues, check Settings › Computers.',
+      'The Verdictan gateway on the machine where work runs is not ready. Try again in a moment.',
     section: 'computers',
     retry: true,
   },
@@ -952,13 +954,13 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.evidence_unavailable': {
     message:
-      'The managed gateway on the machine where work runs did not send its status. Try again in a moment. If it continues, check Settings › Computers.',
+      'The Verdictan gateway on the machine where work runs did not send its status. Try again in a moment.',
     section: 'computers',
     retry: true,
   },
   'desktop.claude_subscription_unsupported': {
     message:
-      'This runtime cannot use your Claude subscription. Your work is safe. Update the runtime.',
+      'This Verdictan gateway cannot use your Claude subscription. Your work is safe. Kalkidan updates it by itself. Wait, then try again.',
     section: 'computers',
   },
   'desktop.claude_subscription_login_required': {
@@ -987,12 +989,12 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
   },
   'desktop.codex_gateway_auth_missing': {
     message:
-      'Codex did not send its ChatGPT sign-in to the managed gateway, so the gateway refused the request. Try again. If the problem continues, run codex login on the machine where work runs.',
+      'Codex did not send its ChatGPT sign-in to the Verdictan gateway, so the gateway refused the request. Try again. If the problem continues, run codex login on the machine where work runs.',
     retry: true,
   },
   'desktop.codex_subscription_catalog_unavailable': {
     message:
-      'Codex cannot reach its models through the managed gateway. Try again. If the problem continues, run codex login on the machine where work runs.',
+      'Codex cannot reach its models through the Verdictan gateway. Try again. If the problem continues, run codex login on the machine where work runs.',
     retry: true,
   },
   'desktop.claude_subscription_login_expiring': {
@@ -1001,13 +1003,12 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'agents',
   },
   'desktop.claude_subscription_identity_unavailable': {
-    message:
-      'Managed agents cannot check your Claude account now. Check the status, then try again.',
+    message: 'The Verdictan gateway cannot check your Claude account now. Try again.',
     section: 'agents',
   },
   'desktop.claude_subscription_route_unsupported': {
     message:
-      'Claude Code sent a request that managed agents do not support. Your work is safe. Check the Claude Code version.',
+      'Claude Code sent a request that the Verdictan gateway does not support. Your work is safe. Check the Claude Code version.',
     section: 'agents',
   },
   'desktop.subscription_account_mismatch': {
@@ -1018,7 +1019,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'agents',
   },
   'desktop.subscription_credentials_invalid': {
-    message: 'The managed agents launch settings are not valid. Choose the setup again.',
+    message: 'The Verdictan launch settings are not valid. Start a new chat.',
     section: 'agents',
   },
   'desktop.subscription_target_required': {
@@ -1059,9 +1060,9 @@ export function managedErrorInfo(
   return (
     managedErrors[code] ||
     (connectionCodes.test(code)
-      ? { message: 'The connection to managed agents stopped. Try again.', retry: true }
+      ? { message: 'The connection to the Verdictan gateway stopped. Try again.', retry: true }
       : {
-          message: 'Managed agents could not complete this operation. Check the setup in Settings.',
+          message: 'The Verdictan gateway could not complete this operation. Try again.',
           section: setUp,
         })
   );
@@ -1192,7 +1193,11 @@ export function managedSetupStep(
 ): ManagedSetupStep {
   return step === 'region' && context.regionSaved ? 'sign-in' : step;
 }
-/** Where each step is in Settings: the tab, the element that gets focus, and a label. */
+/**
+ * Where each step is in Settings: the part, the element that gets focus, and a label. Round 11
+ * has no agent setup in Kalkidan: the agent CLIs show in Settings › Tools, the gateway runtime
+ * installs and repairs by itself (its step is "Try again"), and the agent policy is in Verdictan.
+ */
 export const managedSetupTargets: Record<
   ManagedSetupStep,
   { section: SettingsSection; anchor: string; label: string }
@@ -1201,30 +1206,22 @@ export const managedSetupTargets: Record<
   'sign-in': {
     section: 'account',
     anchor: settingsAnchors.account,
-    label: 'Sign in to managed agents',
+    label: 'Sign in to Verdictan',
   },
-  status: {
+  status: { section: 'tools', anchor: 'settings-tools', label: 'Try again' },
+  'agent-setup': {
     section: 'account',
     anchor: settingsAnchors.account,
-    label: 'Check managed agent status',
+    label: 'Open account settings',
   },
-  'agent-setup': {
-    section: 'agents',
-    anchor: settingsAnchors.managedSetup,
-    label: 'Open managed agent setup',
-  },
-  runtime: {
-    section: 'computers',
-    anchor: runtimeAnchor(),
-    label: 'Install managed runtime',
-  },
-  agents: { section: 'agents', anchor: 'settings-agents', label: 'Open agent settings' },
-  // The row of the coding agent tells how to sign in to it on that computer.
-  'agent-sign-in': { section: 'agents', anchor: 'settings-agents', label: 'Sign in to the agent' },
+  runtime: { section: 'tools', anchor: 'settings-tools', label: 'Try again' },
+  agents: { section: 'tools', anchor: 'settings-tools', label: 'Open Tools settings' },
+  // The row of the coding agent in Tools tells how to sign in to it on that computer.
+  'agent-sign-in': { section: 'tools', anchor: 'settings-tools', label: 'Open Tools settings' },
 };
 /** The first sentence of each message that stops a managed launch. */
 export const managedOnlyNotice =
-  'Kalkidan runs agents only through managed Verdictan agents. It does not start a local agent CLI directly.';
+  'Kalkidan runs the agent CLI of this computer through the Verdictan gateway, for policy and usage.';
 export interface ManagedLaunchBlock {
   code: string;
   step: ManagedSetupStep;
@@ -1235,16 +1232,15 @@ export interface ManagedLaunchBlock {
   path?: string;
 }
 const setupChoice =
-  'Choose an authorized agent or policy, provider access, and model for this coding agent in managed agent setup.';
+  'Your organization has no agent policy for this agent in Verdictan. Ask an organization administrator for help.';
 const signInAgain = 'Sign in to Verdictan again. Then send your message again.';
-const runtimeRepair = 'Install or update the Verdictan runtime on the machine where work runs.';
+const runtimeRepair =
+  'The Verdictan gateway on the machine where work runs is not ready. Kalkidan repairs it by itself. Try again.';
 const supportedAgent = `Install Codex ${agentMinimumVersions.codex} or later, or Claude Code ${agentMinimumVersions.claude_code} or later, on the machine where work runs.`;
-const isolation =
-  'This machine cannot isolate managed agents. Use a supported macOS or Linux machine.';
-const gateway = 'The managed gateway did not start. Check Verdictan status. Then try again.';
-const stopped = 'The Verdictan runtime stopped. Check Verdictan status.';
-const resume =
-  'This conversation has no compatible managed binding. Start a new session to continue.';
+const isolation = 'This machine cannot isolate agents. Use a supported macOS or Linux machine.';
+const gateway = 'The Verdictan gateway did not start. Try again.';
+const stopped = 'The Verdictan gateway stopped. Try again.';
+const resume = 'This chat has no compatible Verdictan binding. Start a new chat to continue.';
 const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.region_required': ['region', 'Select the region of your Verdictan organization.'],
   'desktop.region_mismatch': ['region', 'The saved account belongs to another region.'],
@@ -1261,35 +1257,35 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   'desktop.runtime_missing': ['runtime', runtimeRepair],
   'desktop.host_runtime_missing': [
     'runtime',
-    'Install the managed runtime on this SSH host. Select the host in Managed agents.',
+    'The Verdictan gateway is not ready on this SSH host. Wait, then try again.',
   ],
   'desktop.remote_runtime_missing': [
     'runtime',
-    'Install the managed runtime on this SSH host. Select the host in Managed agents.',
+    'The Verdictan gateway is not ready on this SSH host. Wait, then try again.',
   ],
   'desktop.runtime_not_found': ['runtime', runtimeRepair],
-  'desktop.runtime_starting': ['status', 'The managed runtime is starting. Wait, then try again.'],
+  'desktop.runtime_starting': [
+    'status',
+    'The Verdictan gateway is starting. Wait, then try again.',
+  ],
   'desktop.managed_launch_unavailable': ['runtime', runtimeRepair],
   'desktop.capabilities_invalid': ['runtime', runtimeRepair],
   'desktop.runtime_version_unsupported': [
     'runtime',
-    `Update the Verdictan runtime to ${recommendedRuntime()} or later on the machine where work runs.`,
+    `The Verdictan gateway on the machine where work runs is too old. Kalkidan updates it to ${recommendedRuntime()} or later by itself. Try again.`,
   ],
   'desktop.protocol_unsupported': ['runtime', runtimeRepair],
   // The runtime is installed, but its connection sent a reply that Kalkidan did not expect.
   'desktop.protocol_invalid': [
     'status',
-    'The connection to the Verdictan runtime stopped. Try again.',
+    'The connection to the Verdictan gateway stopped. Try again.',
   ],
   'desktop.operation_unsupported': ['runtime', runtimeRepair],
   'desktop.process_failed': ['runtime', runtimeRepair],
   'desktop.gateway_protocol_invalid': ['runtime', runtimeRepair],
   'desktop.transport_closed': ['status', stopped],
   'desktop.transport_lost': ['status', stopped],
-  'desktop.request_timeout': [
-    'status',
-    'Verdictan did not respond in time. Check Verdictan status. Then try again.',
-  ],
+  'desktop.request_timeout': ['status', 'Verdictan did not respond in time. Try again.'],
   'desktop.setup_invalid': ['agent-setup', setupChoice],
   'desktop.setup_selection_required': ['agent-setup', setupChoice],
   'desktop.setup_default_configuration_required': [
@@ -1306,7 +1302,7 @@ const launchBlocks: Record<string, [ManagedSetupStep, string]> = {
   ],
   'desktop.setup_agent_unavailable': [
     'agent-setup',
-    'The agent of this computer is not available now. Change the agent in Settings › Computers.',
+    'The agent of this computer is not available now. Choose another agent.',
   ],
   'desktop.agent_unavailable': [
     'agent-setup',
@@ -1467,10 +1463,7 @@ function refusalWords(
     const name = nativeAgentNames[kind];
     const minimum = `Kalkidan needs ${name} ${agentMinimumVersions[kind]} or later.`;
     const at = path ? ` at ${path}` : '';
-    // With a path, the fix can also be a different program that is already installed.
-    const fix = path
-      ? `Update ${name} on ${where}, or choose a different ${name} program. Then try again.`
-      : `Update ${name} on ${where}, then try again.`;
+    const fix = `Update ${name} on ${where}, then try again.`;
     if (code.endsWith('_unknown'))
       return `Kalkidan cannot read the version of ${name}${at} on ${where}. ${minimum} ${fix}`;
     return version
@@ -1481,12 +1474,12 @@ function refusalWords(
     case 'desktop.agent_version_unsupported':
       return `Kalkidan cannot confirm the agent version on ${where}. ${supportedAgent}`;
     case 'desktop.readiness_blocked':
-      return `The managed gateway on ${where} is not ready. Try again in a moment. If it continues, check Settings › Computers.`;
+      return `The Verdictan gateway on ${where} is not ready. Try again in a moment.`;
     case 'desktop.evidence_unavailable':
-      return `The managed gateway on ${where} did not send its status. Try again in a moment. If it continues, check Settings › Computers.`;
+      return `The Verdictan gateway on ${where} did not send its status. Try again in a moment.`;
     case 'desktop.readiness_failed':
     case 'desktop.readiness_required':
-      return `The managed agents check on ${where} did not pass. Check the status in Settings › Computers, then try again.`;
+      return `The Verdictan gateway check on ${where} did not pass. Try again.`;
     case 'desktop.event_buffer_full':
       return `The event buffer on ${where} is full. New requests stop until Verdictan receives the stored events. Check the network connection of ${where}, then try again.`;
     case 'desktop.clock_skew':
@@ -1501,7 +1494,7 @@ function refusalWords(
   }
   return undefined;
 }
-/** Codes that an update of the managed agents runtime fixes. */
+/** Codes that an update of the gateway runtime fixes. */
 const runtimeUpdateCodes = new Set([
   'desktop.executable_invalid',
   'desktop.operation_unsupported',
@@ -1532,7 +1525,7 @@ export function managedRefusal(code: string, context: RefusalContext = {}): Mana
     refusalWords(code, where, version, safeProgramPath(context.path), context.remote) ||
     managedErrors[code]?.message ||
     launchBlocks[code]?.[1] ||
-    'The managed launch checks did not pass. Check the managed agent status in Settings.';
+    'The Verdictan launch checks did not pass. Try again.';
   return {
     code,
     message,
@@ -1571,7 +1564,7 @@ export function managedLaunchBlock(
     managedErrors[code]?.message ||
     launchBlocks[code]?.[1] ||
     own ||
-    'The managed launch checks did not pass. Check the managed agent status in Settings.';
+    'The Verdictan launch checks did not pass. Try again.';
   const version = safeVersion(record.version);
   const path = safeProgramPath(record.path);
   return {

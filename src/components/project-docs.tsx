@@ -10,40 +10,34 @@ import {
 } from 'react';
 import { ContextMenu } from 'radix-ui';
 import { DocSaveMachine } from '../domain/doc-save';
-import { WikiEditor, TaskPicker, type WikiEditorActions } from './wiki-editor';
-import { useProjectResource, setProjectResource } from '../hooks/use-project-resource';
 import {
-  BookOpen,
-  ChevronDown,
-  ChevronRight,
-  CircleDot,
-  Code,
-  FilePlus,
-  FileText,
-  FolderInput,
-  ListChecks,
-  MessageSquare,
-  Plus,
-  Trash2,
-  X,
-} from 'lucide-react';
-import type { API, ProjectGroup, TrackerItem } from '../types';
+  WikiEditor,
+  TaskPicker,
+  repositoryName,
+  taskHref,
+  type TaskRowControl,
+  type WikiEditorActions,
+} from './wiki-editor';
+import { useProjectResource, setProjectResource } from '../hooks/use-project-resource';
+import { Code, FilePlus, FolderInput, Plus, Trash2 } from 'lucide-react';
+import type { API, Project, ProjectGroup, TrackerItem } from '../types';
+import type { DocsIssuePlan } from '../domain/docs-plan';
+import { identityVar } from '../domain/identity';
+import { useIdentityColors } from '../hooks/use-identity';
 import { trackerConnection } from '../domain/tracker';
-import { trackerClient } from '../lib/tracker-client';
+import { revertIssuesToDrafts, trackerClient } from '../lib/tracker-client';
 import { useProjectBoard } from '../hooks/use-project-board';
-import { DocsToIssuesDialog, plannedTaskCount } from './docs-to-issues';
+import { mainRepository } from './docs-to-issues';
 import { openConnectBoard } from './tracker-project-picker';
 import type { DeletedProjectDoc, ProjectDoc, ProjectDocMetadata } from '../domain/docs';
-import { hasPrimaryModifier, plural } from '../lib/platform';
+import { hasPrimaryModifier, isMac, plural, shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { showToast } from './ui/toast';
 import { Choice } from './choice';
-import { Hint } from './hint';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
-import { MoreButton } from './ui/more-button';
-import { NavRow } from './ui/nav-row';
+import { Input } from './ui/input';
 import { Textarea } from './ui/textarea';
 import {
   menuCollisionPadding,
@@ -52,13 +46,6 @@ import {
   menuItemClass,
   menuSeparatorClass,
 } from './ui/menu-styles';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from './ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -73,13 +60,18 @@ import { fullTime, relativeTime } from '../lib/relative-time';
 
 type TreeCommand = {
   id: string;
-  kind: 'move' | 'delete' | 'order';
+  kind: 'move' | 'delete' | 'order' | 'source';
   /** The new sibling position for kind 'order'. */
   order?: number;
   /** The new parent for kind 'order', when the page moves to other siblings. */
   parentId?: string | null;
   serial: number;
 };
+/**
+ * The serial of the last tree command. It only goes up: a handled command clears the command,
+ * so a serial from the cleared command would repeat a serial that the editor already handled.
+ */
+let treeCommandSerial = 0;
 
 /** Sorts sibling pages by their order, then by title. Pages without an order come last. */
 export function compareDocs(
@@ -168,6 +160,8 @@ const openTask = (groupId: string, itemId: string) =>
   window.dispatchEvent(new CustomEvent('kalkidan-open-task', { detail: { groupId, itemId } }));
 
 /** Alerts in the editor: under the document bar, at the width of the text column. */
+/** New page: ⌥⌘N on macOS, Ctrl+Alt+N on Windows and Linux. */
+const newPageKeys = isMac ? 'Meta+Alt+N' : 'Control+Alt+N';
 const docAlertClass = 'mt-3 mx-[var(--pane-inset)] max-w-[var(--reading-width)]';
 
 const selectionKey = (groupId: string) => 'kalkidan-docs-selected:' + groupId;
@@ -230,16 +224,17 @@ export function editedText(value: string | number, now = Date.now()) {
 interface PageActions {
   /** Starts a new chat with this page attached. With text, the chat asks about that text. */
   onAskAgent: (doc: ProjectDoc, text?: string) => void;
-  /** Opens "Make tasks from this page". */
-  onPlanTasks: () => void;
-  /** The number of tasks that "Make tasks" makes from the open page. */
-  taskCount: (markdown: string) => number;
+  /** "Make N tasks" on a checklist: makes the tasks at once, with Change and Undo in a toast. */
+  onMakeTasks: (
+    doc: ProjectDoc,
+    titles: string[],
+    rows: TaskRowControl,
+  ) => Promise<TrackerItem[] | void>;
   /** Why "Make tasks" cannot run, for example on a read-only board. */
   planTasksDisabled?: string;
   /** Opens Connect board. Undefined when the project has a board. */
   onConnectBoard?: () => void;
   onLinkTask: (task: TrackerItem) => void;
-  onUnlinkTask: (task: TrackerItem) => void;
   /** Makes a board task from selected text. */
   onMakeTask: (text: string) => void;
 }
@@ -263,18 +258,18 @@ function DocEditor({
   actions,
   switcher,
   tasks,
-  linkedTasks,
   readCount,
+  repoColor,
 }: {
   actions: PageActions;
-  /** The Knowledge switcher. It shows in the document bar in a narrow window. */
+  /** The Knowledge switcher. It shows above the title in a narrow window. */
   switcher?: ReactNode;
-  /** The board tasks for "/" and the task picker. Undefined: no board. Null: the board loads. */
+  /** The board tasks for "/", "#" and the task rows. Undefined: no board. Null: it loads. */
   tasks?: TrackerItem[] | null;
-  /** The board tasks that link to this page. */
-  linkedTasks: TrackerItem[];
-  /** The number of chats that read this page. */
+  /** The number of sessions that read this page. */
   readCount?: number;
+  /** The color of a repository ring, from the identity palette. */
+  repoColor?: (repository: string) => string | undefined;
   /** Scrolls to the heading with this text. The serial repeats a request for the same text. */
   heading?: { text: string; serial: number };
   onTreeCommandHandled: () => void;
@@ -297,7 +292,6 @@ function DocEditor({
   const [source, setSource] = useState(false);
   const [moving, setMoving] = useState(false);
   const [moveTarget, setMoveTarget] = useState('root');
-  const [picking, setPicking] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   // Scroll to the requested heading. The editor renders after mount, so try for a short time.
   useEffect(() => {
@@ -334,10 +328,15 @@ function DocEditor({
       if (machine.read().status === 'clean') onDelete();
     });
   }
+  // Each command runs once, also when React runs the effect twice (Strict Mode). Two runs of
+  // 'delete' showed two toasts.
+  const handledCommand = useRef(0);
   useEffect(() => {
-    if (treeCommand?.id !== initial.id) return;
+    if (treeCommand?.id !== initial.id || handledCommand.current === treeCommand.serial) return;
+    handledCommand.current = treeCommand.serial;
     if (treeCommand.kind === 'move') startMove();
     else if (treeCommand.kind === 'delete') requestDelete();
+    else if (treeCommand.kind === 'source') setSource((value) => !value);
     else {
       update({
         ...latest.current,
@@ -388,7 +387,7 @@ function DocEditor({
     onDirtyChange(saveState.status !== 'clean' || !!recovery);
   }, [saveState.status, recovery]);
   // A save shows only when it is slow (after 1 second) or when it fails. The time of the last
-  // change shows in the document bar: from the page file, then from each save.
+  // change shows in the meta line: from the page file, then from each save.
   const [slowSave, setSlowSave] = useState(false);
   const [editedAt, setEditedAt] = useState(() =>
     initial.updatedAt ? new Date(initial.updatedAt).toISOString() : undefined,
@@ -488,119 +487,27 @@ function DocEditor({
       void flush();
     };
   }, []);
-  const ancestors = pageAncestors(
-    pages.map((p) => (p.id === draft.id ? { ...p, parentId: draft.parentId } : p)),
-    draft.id,
-  );
   const askAgent = (text?: string) =>
     void flush().then(() => actions.onAskAgent(latest.current, text));
-  const makeTasks = () => void flush().then(actions.onPlanTasks);
-  const taskCount = actions.taskCount(draft.markdown);
-  const makeLabel = taskCount ? `Make ${plural(taskCount, 'task')}` : 'Make tasks';
   const meta = [
     editedAt ? `Edited ${editedText(editedAt)}` : '',
-    readCount ? `Read in ${plural(readCount, 'chat')}` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const linkTask = () => (actions.onConnectBoard ? actions.onConnectBoard() : setPicking(true));
+    readCount ? `Read in ${plural(readCount, 'session')}` : '',
+  ].filter(Boolean);
   const editorActions: WikiEditorActions = {
     onLinkTask: actions.onLinkTask,
     onConnectBoard: actions.onConnectBoard,
     onMakeTask: actions.onMakeTask,
     onAskSelection: (text) => askAgent(text),
+    onMakeTasks: actions.planTasksDisabled
+      ? undefined
+      : async (titles, rows) => {
+          await flush();
+          return actions.onMakeTasks(latest.current, titles, rows);
+        },
   };
-  const linked = new Set(linkedTasks.map((task) => task.id));
   return (
     <section className="doc-editor" aria-label="Document editor">
-      <div className="wiki-document-bar">
-        <div className="wiki-document-bar-inner">
-          {switcher}
-          {/* The ancestors of the page. The title and its meta line are under the bar. */}
-          {ancestors.length > 0 && (
-            <nav className="wiki-breadcrumbs" aria-label="Document breadcrumb">
-              {ancestors.map((ancestor, index) => (
-                <span key={ancestor.id} className="contents">
-                  {index > 0 && <ChevronRight size={12} aria-hidden="true" />}
-                  <button type="button" onClick={() => onNavigate(ancestor.id)}>
-                    {ancestor.title || 'Untitled'}
-                  </button>
-                </span>
-              ))}
-            </nav>
-          )}
-          <div className="wiki-document-actions">
-            {/* Do not announce each save. Announce only a failed save. */}
-            {status && (
-              <span role="status" aria-live="off" className="doc-save-state">
-                {status}
-              </span>
-            )}
-            {status === 'Not saved' && (
-              <span role="alert" className="sr-only">
-                The page is not saved.
-              </span>
-            )}
-            {saveState.status === 'save-error' && (
-              <Button variant="outline" size="sm" onClick={retry}>
-                Retry
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground hover:text-foreground"
-              onClick={() => askAgent()}
-            >
-              <MessageSquare aria-hidden="true" />
-              Ask agent
-            </Button>
-            {actions.planTasksDisabled ? (
-              <Hint label={actions.planTasksDisabled}>
-                {/* A disabled button gets no pointer events. The wrapper shows the reason. */}
-                <span tabIndex={0} className="rounded-md">
-                  <Button variant="outline" size="sm" disabled>
-                    <ListChecks aria-hidden="true" />
-                    {makeLabel}
-                  </Button>
-                </span>
-              </Hint>
-            ) : (
-              <Button variant="outline" size="sm" onClick={makeTasks}>
-                <ListChecks aria-hidden="true" />
-                {makeLabel}
-              </Button>
-            )}
-            <DropdownMenu>
-              <Hint label="Page actions">
-                <DropdownMenuTrigger asChild>
-                  <MoreButton label="Page actions" />
-                </DropdownMenuTrigger>
-              </Hint>
-              {/* The same items, in the same order, as the menu of the page row. */}
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={onSubpage}>
-                  <FilePlus className="size-4" aria-hidden="true" />
-                  Add subpage
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={startMove}>
-                  <FolderInput className="size-4" aria-hidden="true" />
-                  Move page…
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => setSource((value) => !value)}>
-                  <Code className="size-4" aria-hidden="true" />
-                  {source ? 'Hide Markdown' : 'View Markdown'}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={requestDelete}>
-                  <Trash2 className="size-4" aria-hidden="true" />
-                  Delete page
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      </div>
+      {switcher && <div className="knowledge-switcher-row">{switcher}</div>}
       {recovery && (
         <Alert role={undefined} size="sm" className={docAlertClass}>
           <AlertDescription className="doc-alert-body">
@@ -727,20 +634,6 @@ function DocEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {tasks !== undefined && (
-        <TaskPicker
-          open={picking}
-          onOpenChange={setPicking}
-          tasks={tasks && tasks.filter((task) => !linked.has(task.id))}
-          onPick={actions.onLinkTask}
-          onCloseAutoFocus={(event) => {
-            event.preventDefault();
-            body.current
-              ?.querySelector<HTMLElement>('.doc-tasks [data-add], .ProseMirror, .wiki-source')
-              ?.focus();
-          }}
-        />
-      )}
       <div className="wiki-page" ref={body}>
         <input
           className="doc-title"
@@ -770,32 +663,27 @@ function DocEditor({
             void flush();
           }}
         />
-        {meta && <p className="doc-meta">{meta}</p>}
-        {linkedTasks.length > 0 && (
-          <div className="doc-tasks" role="group" aria-label="Linked tasks">
-            <span className="doc-tasks-label">Tasks</span>
-            {linkedTasks.map((task) => (
-              <span key={task.id} className="doc-task-chip">
-                <button type="button" onClick={() => openTask(groupId, task.id)}>
-                  <CircleDot size={12} aria-hidden="true" />
-                  <span className="truncate">{taskLabel(task)}</span>
-                  {task.status && <span className="doc-task-status">{task.status}</span>}
-                </button>
-                <button
-                  type="button"
-                  className="doc-task-unlink"
-                  aria-label={`Unlink ${taskLabel(task)}`}
-                  onClick={() => actions.onUnlinkTask(task)}
-                >
-                  <X size={12} aria-hidden="true" />
-                </button>
-              </span>
-            ))}
-            <button type="button" className="doc-task-chip" data-add="" onClick={linkTask}>
-              <Plus size={12} aria-hidden="true" />
-              Link task
-            </button>
-          </div>
+        {/* When the page changed, how many sessions read it, and a slow or failed save. */}
+        <p className="doc-meta">
+          {meta.map((text) => (
+            <span key={text}>{text}</span>
+          ))}
+          {/* Do not announce each save. Announce only a failed save. */}
+          {status && (
+            <span role="status" aria-live="off" className="doc-save-state">
+              {status}
+            </span>
+          )}
+          {saveState.status === 'save-error' && (
+            <Button variant="link" className="h-auto p-0 text-xs" onClick={retry}>
+              Retry
+            </Button>
+          )}
+        </p>
+        {status === 'Not saved' && (
+          <span role="alert" className="sr-only">
+            The page is not saved.
+          </span>
         )}
         {source ? (
           <Textarea
@@ -821,6 +709,7 @@ function DocEditor({
             api={api}
             onOpenTask={(itemId) => openTask(groupId, itemId)}
             actions={editorActions}
+            repoColor={repoColor}
           />
         )}
       </div>
@@ -833,11 +722,14 @@ function PageRowMenu({
   children,
   onSubpage,
   onMove,
+  onSource,
   onDelete,
 }: {
   children: ReactNode;
   onSubpage: () => void;
   onMove: () => void;
+  /** Shows or hides the Markdown text of the page. */
+  onSource: () => void;
   onDelete: () => void;
 }) {
   const item = (label: string, Icon: typeof Plus, run: () => void, destructive = false) => (
@@ -856,6 +748,7 @@ function PageRowMenu({
         <ContextMenu.Content collisionPadding={menuCollisionPadding} className={menuContentClass}>
           {item('Add subpage', FilePlus, onSubpage)}
           {item('Move page…', FolderInput, onMove)}
+          {item('View Markdown', Code, onSource)}
           <ContextMenu.Separator className={menuSeparatorClass} />
           {item('Delete page', Trash2, onDelete, true)}
         </ContextMenu.Content>
@@ -871,17 +764,68 @@ export interface DocOpenRequest {
   serial: number;
 }
 
+/** The window event that opens "Recently deleted" for a project. detail: { groupId }. */
+export const recentlyDeletedEvent = 'kalkidan-knowledge-deleted';
+/** The window event that makes a new page in a project. detail: { groupId }. */
+export const newPageEvent = 'kalkidan-knowledge-new-page';
+
+const repositoryKey = (groupId: string) => 'kalkidan-make-tasks-repository:' + groupId;
+function readRepository(groupId: string) {
+  try {
+    return localStorage.getItem(repositoryKey(groupId)) || '';
+  } catch {
+    return '';
+  }
+}
+function writeRepository(groupId: string, value: string) {
+  try {
+    localStorage.setItem(repositoryKey(groupId), value);
+  } catch {
+    // Storage can be unavailable. The next "Make tasks" then uses the main repository.
+  }
+}
+
+/** The Markdown of a page with the links to these tasks as plain text again (Undo). */
+export function withoutTaskLinks(markdown: string, hrefs: string[]) {
+  let result = markdown;
+  for (const href of hrefs) {
+    const escaped = href.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(`\\[([^\\]\\n]*)\\]\\(<?${escaped}>?\\)`, 'g'), '$1');
+  }
+  return result;
+}
+
 /**
- * The pages of the Knowledge tab: one rail list (the `railLead` rows, then the page tree) and
- * the page editor. With `pane`, the right side shows that instead of the editor.
+ * The pages that show in the rail while Find has text: each page with matches and the parent
+ * pages above it. Null when Find is empty.
+ */
+export function visiblePages(
+  pages: ProjectDocMetadata[],
+  matches: Record<string, number> | undefined,
+) {
+  if (!matches) return null;
+  const visible = new Set<string>();
+  for (const id of Object.keys(matches)) {
+    if (!pages.some((page) => page.id === id)) continue;
+    visible.add(id);
+    for (const parent of pageAncestors(pages, id)) visible.add(parent.id);
+  }
+  return visible;
+}
+
+/**
+ * The pages of the Knowledge tab: one rail (Find, the `railLead` rows, the page tree and New
+ * page) and the page editor. With `pane`, the right side shows that instead of the editor.
  */
 export function ProjectDocsPanel({
   api,
   group,
+  repos = [],
   initialPageId,
   initialHeading,
   request,
-  search,
+  find,
+  matches,
   railLead,
   railOpen,
   pane,
@@ -891,24 +835,28 @@ export function ProjectDocsPanel({
 }: {
   api: API;
   group: ProjectGroup;
+  /** The code folders of the project. They give the repository colors. */
+  repos?: Project[];
   /** Opens this page, for example from a search result. */
   initialPageId?: string;
   /** Scrolls the opened page to the heading with this text. */
   initialHeading?: string;
   request?: DocOpenRequest;
-  /** The search field at the top of the rail. The New page button shows next to it. */
-  search?: ReactNode;
+  /** The Find field at the top of the rail. */
+  find?: ReactNode;
+  /** While Find has text: the number of matches of each page. Other pages do not show. */
+  matches?: Record<string, number>;
   /** Rail rows above the pages, for example Memory. */
   railLead?: ReactNode;
   /** In a narrow window, the rail shows over the content while this is true. */
   railOpen?: boolean;
   /** Shows this on the right instead of the page editor. */
   pane?: ReactNode;
-  /** The Knowledge switcher for a narrow window. It shows in the document bar. */
+  /** The Knowledge switcher for a narrow window. It shows above the title. */
   switcher?: ReactNode;
   /** Called when the user opens a page from the rail. */
   onPageOpen?: () => void;
-  /** The number of chats that read each page. */
+  /** The number of sessions that read each page. */
   readCounts?: Record<string, number>;
 }) {
   const [selected, setSelected] = useState('');
@@ -956,79 +904,73 @@ export function ProjectDocsPanel({
     );
   }, [group.id, selected, selectedTitle, !!pane]);
   const [treeCommand, setTreeCommand] = useState<TreeCommand>();
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [error, setError] = useState('');
   const loading = ['idle', 'loading'].includes(metadata.state.status);
   const [busy, setBusy] = useState(false);
   const [deletedPages, setDeletedPages] = useState<DeletedProjectDoc[] | null>(null);
-  // The number of deleted pages. It loads again after a delete or a restore.
-  const [trashCount, setTrashCount] = useState(0);
-  useEffect(() => {
-    if (typeof api.docsTrash !== 'function') return;
-    let live = true;
-    api
-      .docsTrash(group.id)
-      .then((value) => live && setTrashCount(value.length))
-      .catch(() => live && setTrashCount(0));
-    return () => {
-      live = false;
-    };
-  }, [api, group.id, pages.length, deletedPages?.length]);
   const pageLoading = ['idle', 'loading'].includes(content.state.status) && !!selected;
   // While a title is edited, the list sorts by the titles from before the edit.
   const [frozenTitles, setFrozenTitles] = useState<Map<string, string> | null>(null);
   // After New page, focus goes to the title of the new page, not back to the page list.
   const createdPage = useRef<string | null>(null);
   const workspace = useRef<HTMLDivElement>(null);
-  const [planning, setPlanning] = useState(false);
   // An action that waits for a board: it continues when the board connects.
-  const [afterConnect, setAfterConnect] = useState<'plan' | 'link' | 'task' | null>(null);
+  const [afterConnect, setAfterConnect] = useState<'link' | 'task' | 'make' | null>(null);
   // The selected text of "Make task" while the board connects.
   const pendingTask = useRef('');
+  // The checklist of "Make N tasks" while the board connects.
+  const pendingMake = useRef<{ doc: ProjectDoc; titles: string[]; rows: TaskRowControl }>(
+    undefined,
+  );
   const connection = trackerConnection(group);
   const provider = connection?.provider || 'github';
   const client = useMemo(() => trackerClient(api, provider), [api, provider]);
   const board = useProjectBoard(api, client, provider, group.id, connection?.project);
   const writable = board.state.value?.writable;
   const planReason = connection ? planTasksReason(true, writable) : undefined;
+  // Tasks that "Make N tasks" made. They show as task rows before the board loads again.
+  const [madeTasks, setMadeTasks] = useState<TrackerItem[]>([]);
   const boardTasks: TrackerItem[] | null | undefined = !connection
     ? undefined
     : board.state.value
-      ? board.state.value.items
+      ? [
+          ...board.state.value.items,
+          ...madeTasks.filter((made) => !board.state.value!.items.some((t) => t.id === made.id)),
+        ]
       : board.state.status === 'error'
-        ? []
+        ? madeTasks
         : null;
-  const [taskLinks, setTaskLinks] = useState<Record<string, string[]>>();
-  const [linkSerial, setLinkSerial] = useState(0);
-  useEffect(() => {
-    if (!connection || !api.taskDocLinks) return;
-    let live = true;
-    api
-      .taskDocLinks(group.id)
-      .then((links) => live && setTaskLinks(links))
-      .catch(() => live && setTaskLinks(undefined));
-    return () => {
-      live = false;
-    };
-  }, [api, group.id, !!connection, selected, linkSerial]);
+  const repoItems = useMemo(
+    () => repos.map((repo) => ({ key: repo.name, name: repo.name })),
+    [repos.map((repo) => repo.name).join('\n')],
+  );
+  const repoColors = useIdentityColors('repo', repoItems);
+  const repoColor = (repository: string) => {
+    const color = repoColors.get(repositoryName(repository));
+    return color ? identityVar(color) : undefined;
+  };
   const [linking, setLinking] = useState(false);
+  // The repository choice of "Change" in the toast. It resolves with the chosen repository.
+  const [repositoryChoice, setRepositoryChoice] = useState<{
+    value: string;
+    resolve: (value: string | null) => void;
+  } | null>(null);
   // Continue the action after Connect board.
   useEffect(() => {
-    if (!afterConnect) return;
-    // Make tasks reads the board itself, so it can open before the project data reloads.
-    if (afterConnect === 'plan') {
-      setPlanning(true);
-      setAfterConnect(null);
-      return;
-    }
-    if (!connection) return;
+    if (!afterConnect || !connection) return;
+    const make = pendingMake.current;
     if (afterConnect === 'link') setLinking(true);
+    else if (afterConnect === 'make' && make)
+      void makeTasks(make.doc, make.titles, make.rows).then(
+        (created) => created && make.rows.apply(make.titles, created),
+      );
     else if (pendingTask.current) void makeTask(pendingTask.current);
     pendingTask.current = '';
+    pendingMake.current = undefined;
     setAfterConnect(null);
   }, [!!connection, afterConnect]);
   /** Opens Connect board over the page. The action continues when the board connects. */
-  function connectThen(next: 'plan' | 'link' | 'task') {
+  function connectThen(next: 'link' | 'task' | 'make') {
     openConnectBoard({ groupId: group.id, onConnected: () => setAfterConnect(next) });
   }
   function askAgent(doc: ProjectDoc, text?: string) {
@@ -1056,11 +998,16 @@ export function ProjectDocsPanel({
         ? [...new Set([...current, page.id])]
         : current.filter((id) => id !== page.id);
       await api.setTaskDocLinks(group.id, task.id, next);
-      setTaskLinks({ ...links, [task.id]: next });
-      setLinkSerial((value) => value + 1);
     } catch (failure) {
       showToast({ message: errorMessage(failure), tone: 'error' });
     }
+  }
+  /** Adds the page to the related pages of each task. */
+  async function linkPageTo(docId: string, ids: string[]) {
+    if (typeof api.setTaskDocLinks !== 'function' || !ids.length) return;
+    const links = (await api.taskDocLinks?.(group.id)) || {};
+    for (const id of ids)
+      await api.setTaskDocLinks(group.id, id, [...new Set([...(links[id] || []), docId])]);
   }
   async function makeTask(text: string) {
     if (!connection) {
@@ -1076,12 +1023,8 @@ export function ProjectDocsPanel({
     const title = first.replace(/^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?/, '').trim();
     try {
       const id = await api.trackerDraft(group.id, title.slice(0, 256), rest.join('\n').trim());
-      if (id && page && typeof api.setTaskDocLinks === 'function') {
-        const links = (await api.taskDocLinks?.(group.id)) || {};
-        await api.setTaskDocLinks(group.id, id, [...new Set([...(links[id] || []), page.id])]);
-      }
+      if (id && page) await linkPageTo(page.id, [id]);
       void board.refresh().catch(() => undefined);
-      setLinkSerial((value) => value + 1);
       showToast({
         message: `Task “${title.slice(0, 60)}” added.`,
         actions: id ? [{ label: 'Open', onClick: () => openTask(group.id, id) }] : undefined,
@@ -1089,6 +1032,183 @@ export function ProjectDocsPanel({
     } catch (failure) {
       showToast({ message: errorMessage(failure), tone: 'error' });
     }
+  }
+  /** Asks for a repository for new tasks. Resolves with null when the user cancels. */
+  function chooseRepository(value: string) {
+    return new Promise<string | null>((resolve) => setRepositoryChoice({ value, resolve }));
+  }
+  /** The repositories of the board tasks, for the repository choice. */
+  const boardRepositories = [
+    ...new Set(
+      (board.state.value?.items || []).flatMap((item) =>
+        item.repository ? [item.repository] : [],
+      ),
+    ),
+  ].sort();
+  /** Adds one GitHub issue for each title to the board, in a repository. */
+  async function createTasks(doc: ProjectDoc, titles: string[], repository: string) {
+    const plan: DocsIssuePlan = {
+      id: crypto.randomUUID(),
+      repository,
+      entries: titles.map((title) => ({
+        title: title.slice(0, 256),
+        // Each task names its source page, so an agent can read it.
+        body: `Source document: ${doc.title || 'Untitled'} (${doc.id}, revision ${doc.revision}).`,
+      })),
+    };
+    const result = await api.trackerDocsPlan(group.id, plan);
+    const ids = titles.map(
+      (_, index) =>
+        result.rows.find((row) => row.index === index && row.state === 'complete')?.itemId,
+    );
+    const next = await board.refresh().catch(() => undefined);
+    const created = ids.map(
+      (id, index): TrackerItem | undefined =>
+        next?.items.find((item) => item.id === id) ||
+        (id ? { id, title: titles[index], body: '', repository, status: 'Todo' } : undefined),
+    );
+    const made = created.filter((task): task is TrackerItem => !!task);
+    setMadeTasks((current) => [
+      ...current.filter((t) => !made.some((m) => m.id === t.id)),
+      ...made,
+    ]);
+    await linkPageTo(
+      doc.id,
+      made.map((task) => task.id),
+    ).catch(() => undefined);
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-github-writes', { detail: { groupId: group.id } }),
+    );
+    writeRepository(group.id, repository);
+    return created;
+  }
+  /** Removes the tasks from the board and turns their rows back into open items. */
+  async function removeTasks(doc: ProjectDoc, tasks: TrackerItem[], rows: TaskRowControl) {
+    await Promise.all(
+      tasks.map((task) =>
+        api.trackerItemAction(group.id, task.id, { kind: 'remove' }).catch(() => undefined),
+      ),
+    );
+    await restoreRows(doc, tasks, rows);
+  }
+  /**
+   * Undo of "Make N tasks": each new issue closes on GitHub as not planned, and a draft with the
+   * same title and description takes its place on the board. The task rows on the page turn back
+   * into open items. An issue that does not change keeps its row.
+   */
+  async function undoTasks(doc: ProjectDoc, tasks: TrackerItem[], rows: TaskRowControl) {
+    const items = board.state.value?.items || [];
+    const results = await revertIssuesToDrafts(
+      api,
+      group.id,
+      tasks.map((task) => ({
+        itemId: task.id,
+        title: task.title,
+        body: task.body || '',
+        statusId: items.find((item) => item.id === task.id)?.statusId || task.statusId,
+      })),
+    );
+    const drafts = results.flatMap((result) => (result.draftId ? [result.draftId] : []));
+    await linkPageTo(doc.id, drafts).catch(() => undefined);
+    const reverted = tasks.filter((task) =>
+      results.some((result) => result.itemId === task.id && result.draftId),
+    );
+    if (reverted.length) await restoreRows(doc, reverted, rows);
+    const failed = results.filter((result) => result.error);
+    if (failed.length)
+      showToast({
+        message:
+          `${plural(failed.length, 'task')} did not change back to a draft. ` +
+          `${failed[0].error}`,
+        tone: 'error',
+      });
+  }
+  /** Turns the rows of the tasks back into open items and reloads the board. */
+  async function restoreRows(doc: ProjectDoc, tasks: TrackerItem[], rows: TaskRowControl) {
+    setMadeTasks((current) => current.filter((t) => !tasks.some((task) => task.id === t.id)));
+    if (!rows.revert(tasks)) {
+      // The page is not open now: change its Markdown file.
+      const saved = await api.docsRead(group.id, doc.id);
+      const markdown = withoutTaskLinks(saved.markdown, tasks.map(taskHref));
+      if (markdown !== saved.markdown) {
+        const next = await api.docsSave(group.id, { ...saved, markdown });
+        setProjectResource(api, group, 'docs-page', next, next.id);
+      }
+    }
+    void board.refresh().catch(() => undefined);
+    window.dispatchEvent(
+      new CustomEvent('kalkidan-github-writes', { detail: { groupId: group.id } }),
+    );
+  }
+  /**
+   * "Make N tasks": makes the tasks at once in the last repository. The toast names the
+   * repository and has Change and Undo.
+   */
+  async function makeTasks(doc: ProjectDoc, titles: string[], rows: TaskRowControl) {
+    if (!connection) {
+      // The tasks are made after the board connects. The rows then change through `rows`.
+      pendingMake.current = { doc, titles, rows };
+      connectThen('make');
+      return;
+    }
+    if (planReason) {
+      showToast({ message: planReason, tone: 'error' });
+      return;
+    }
+    const known = board.state.value || (await board.refresh().catch(() => undefined));
+    let repository =
+      readRepository(group.id) || mainRepository((known?.items || []).map((i) => i.repository));
+    if (!repository) repository = (await chooseRepository('')) || '';
+    if (!repository) return;
+    try {
+      const created = await createTasks(doc, titles, repository);
+      const made = created.filter((task): task is TrackerItem => !!task);
+      if (!made.length) {
+        showToast({ message: 'Kalkidan could not make the tasks.', tone: 'error' });
+        return;
+      }
+      announce(doc, titles, made, repository, rows);
+      return created as TrackerItem[];
+    } catch (failure) {
+      showToast({ message: errorMessage(failure), tone: 'error' });
+    }
+  }
+  /** The toast after "Make N tasks": "3 tasks in atlas-web", Change and Undo. */
+  function announce(
+    doc: ProjectDoc,
+    titles: string[],
+    made: TrackerItem[],
+    repository: string,
+    rows: TaskRowControl,
+  ) {
+    showToast({
+      message: `${plural(made.length, 'task')} in ${repositoryName(repository)}`,
+      tone: 'success',
+      actions: [
+        {
+          label: 'Change',
+          onClick: () =>
+            void (async () => {
+              const next = await chooseRepository(repository);
+              if (!next || next === repository) return;
+              await removeTasks(doc, made, rows);
+              try {
+                const created = await createTasks(doc, titles, next);
+                const again = created.filter((task): task is TrackerItem => !!task);
+                if (!again.length) return;
+                rows.apply(
+                  titles.filter((_, index) => !!created[index]),
+                  again,
+                );
+                announce(doc, titles, again, next, rows);
+              } catch (failure) {
+                showToast({ message: errorMessage(failure), tone: 'error' });
+              }
+            })(),
+        },
+        { label: 'Undo', onClick: () => void undoTasks(doc, made, rows) },
+      ],
+    });
   }
   useEffect(() => {
     setError(metadata.state.error || content.state.error || '');
@@ -1135,11 +1255,45 @@ export function ProjectDocsPanel({
       const doc = await api.docsCreate(group.id, 'Untitled', parentId);
       setProjectResource(api, group, 'docs-page', doc, doc.id);
       setPages((p) => [...p.filter((page) => page.id !== doc.id), doc]);
-      if (parentId) setCollapsed((c) => ({ ...c, [parentId]: false }));
       createdPage.current = doc.id;
       open(doc.id);
     });
   }
+  const newPageRef = useRef(newPage);
+  newPageRef.current = newPage;
+  // ⌥⌘N makes a new page while the Knowledge tab shows. ⌘⇧N is New project in the app menu.
+  // ⌘K and the menu send an event. Option changes the character of N, so the key code is read.
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (
+        !hasPrimaryModifier(event) ||
+        !event.altKey ||
+        event.shiftKey ||
+        event.code !== 'KeyN' ||
+        event.defaultPrevented
+      )
+        return;
+      event.preventDefault();
+      newPageRef.current(null);
+    };
+    const requested = (event: Event) => {
+      const detail = (event as CustomEvent<{ groupId?: string }>).detail;
+      if (!detail?.groupId || detail.groupId === group.id) newPageRef.current(null);
+    };
+    const deleted = (event: Event) => {
+      const detail = (event as CustomEvent<{ groupId?: string }>).detail;
+      if (detail?.groupId && detail.groupId !== group.id) return;
+      void action(async () => setDeletedPages(await api.docsTrash(group.id)));
+    };
+    window.addEventListener('keydown', key);
+    window.addEventListener(newPageEvent, requested);
+    window.addEventListener(recentlyDeletedEvent, deleted);
+    return () => {
+      window.removeEventListener('keydown', key);
+      window.removeEventListener(newPageEvent, requested);
+      window.removeEventListener(recentlyDeletedEvent, deleted);
+    };
+  }, [group.id]);
   // Focus the title of the new page when its editor shows. Typing replaces "Untitled".
   const openPageId = page && page.id === selected && !pane ? page.id : '';
   useEffect(() => {
@@ -1152,14 +1306,12 @@ export function ProjectDocsPanel({
     });
     return () => cancelAnimationFrame(frame);
   }, [openPageId]);
-  // A page opens at its top, under the document bar.
+  // A page opens at its top.
   useEffect(() => {
     const element = workspace.current;
-    if (!element) return;
-    element.scrollTop = 0;
-    element.removeAttribute('data-scrolled');
+    if (element) element.scrollTop = 0;
   }, [openPageId]);
-  /** Puts a page back from Deleted pages and opens it. */
+  /** Puts a deleted page back and opens it. */
   async function restore(trashId: string) {
     const doc = await api.docsRestore(group.id, trashId);
     setProjectResource(api, group, 'docs-page', doc, doc.id);
@@ -1170,11 +1322,15 @@ export function ProjectDocsPanel({
     open(doc.id);
     return doc;
   }
+  // The pages that a delete runs for. A second request for the same page does nothing.
+  const deleting = useRef(new Set<string>());
   /**
-   * Moves a page to Deleted pages at once, with no dialog. The toast can undo it, as for a
-   * removed fact.
+   * Deletes a page at once, with no dialog. The toast can undo it, as for a removed fact.
+   * "Recently deleted" in ⌘K can restore it later.
    */
   function deletePage(doc: ProjectDoc) {
+    if (deleting.current.has(doc.id)) return;
+    deleting.current.add(doc.id);
     return action(async () => {
       await api.docsDelete(group.id, doc.id, doc.revision);
       setPages((p) => p.filter((d) => d.id !== doc.id));
@@ -1195,11 +1351,11 @@ export function ProjectDocsPanel({
           },
         ],
       });
-    });
+    }).finally(() => deleting.current.delete(doc.id));
   }
   function command(id: string, kind: TreeCommand['kind']) {
     open(id);
-    setTreeCommand((current) => ({ id, kind, serial: (current?.serial ?? 0) + 1 }));
+    setTreeCommand({ id, kind, serial: ++treeCommandSerial });
   }
   const children = useMemo(() => {
     const map = new Map<string | null, ProjectDocMetadata[]>();
@@ -1224,13 +1380,13 @@ export function ProjectDocsPanel({
         const parentChanged = sibling.id === id && moved?.parentId !== sibling.parentId;
         if (sibling.order === order && !parentChanged) continue;
         if (sibling.id === page?.id)
-          setTreeCommand((current) => ({
+          setTreeCommand({
             id: sibling.id,
             kind: 'order',
             order,
             parentId: parentChanged ? sibling.parentId : undefined,
-            serial: (current?.serial ?? 0) + 1,
-          }));
+            serial: ++treeCommandSerial,
+          });
         else {
           const full = await api.docsRead(group.id, sibling.id);
           await api.docsSave(group.id, { ...full, order, parentId: sibling.parentId });
@@ -1258,43 +1414,31 @@ export function ProjectDocsPanel({
       setDrag({ ...drag, over: targetId, position });
   }
   const hasSubpages = !!page && !!children.get(page.id)?.length;
-  const hasPages = pages.length > 0;
-  useEffect(() => {
-    const ancestors: string[] = [];
-    let cursor = pages.find((p) => p.id === selected);
-    const seen = new Set<string>();
-    while (cursor?.parentId && !seen.has(cursor.parentId)) {
-      seen.add(cursor.parentId);
-      ancestors.push(cursor.parentId);
-      cursor = pages.find((p) => p.id === cursor?.parentId);
-    }
-    setCollapsed((current) => {
-      if (!ancestors.some((id) => current[id])) return current;
-      return { ...current, ...Object.fromEntries(ancestors.map((id) => [id, false])) };
-    });
-  }, [selected, pages]);
+  const visible = useMemo(() => visiblePages(pages, matches), [pages, matches]);
+  // The rail is one list: Memory first, then the pages. Subpages always show, 16px further in.
   function tree(parentId: string | null, depth = 0, visited = new Set<string>()): ReactNode {
-    const siblings = children.get(parentId) || [];
+    const siblings = (children.get(parentId) || []).filter((p) => !visible || visible.has(p.id));
     return siblings.map((p, index) => {
       if (visited.has(p.id)) return null;
       const next = new Set(visited).add(p.id);
-      const hasChildren = !!children.get(p.id)?.length;
       const current = !pane && selected === p.id;
+      const count = matches?.[p.id] || 0;
       return (
         <li key={p.id}>
           <PageRowMenu
             onSubpage={() => newPage(p.id)}
             onMove={() => command(p.id, 'move')}
+            onSource={() => command(p.id, 'source')}
             onDelete={() => command(p.id, 'delete')}
           >
             <div
               className="wiki-tree-row row-focus"
-              // A subpage row has the full width. Only its icon and title move in.
               style={depth ? ({ '--depth': depth } as CSSProperties) : undefined}
               data-depth={depth || undefined}
               data-selected={current}
+              data-dim={visible && !count ? '' : undefined}
               data-drop={drag?.over === p.id ? drag.position : undefined}
-              draggable={!busy}
+              draggable={!busy && !matches}
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = 'move';
                 event.dataTransfer.setData('text/plain', p.title);
@@ -1309,26 +1453,6 @@ export function ProjectDocsPanel({
               }}
               onDragEnd={() => setDrag(null)}
             >
-              {hasChildren ? (
-                <button
-                  type="button"
-                  className="wiki-tree-icon"
-                  aria-label={`Toggle ${p.title} subpages`}
-                  aria-expanded={!collapsed[p.id]}
-                  onClick={() => setCollapsed((c) => ({ ...c, [p.id]: !c[p.id] }))}
-                >
-                  <FileText size={16} className="wiki-tree-file" aria-hidden="true" />
-                  {collapsed[p.id] ? (
-                    <ChevronRight size={14} className="wiki-tree-chevron" aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} className="wiki-tree-chevron" aria-hidden="true" />
-                  )}
-                </button>
-              ) : (
-                <span className="wiki-tree-icon" aria-hidden="true">
-                  <FileText size={16} />
-                </span>
-              )}
               <button
                 type="button"
                 className="doc-tree-page"
@@ -1340,16 +1464,23 @@ export function ProjectDocsPanel({
                   // Alt+Arrow keys move the page up or down in the list.
                   if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
                   event.preventDefault();
-                  const up = event.key === 'ArrowUp';
-                  const target = siblings[index + (up ? -1 : 1)];
-                  if (target) place(p.id, target.id, up ? 'before' : 'after');
+                  const target = siblings[index + (event.key === 'ArrowUp' ? -1 : 1)];
+                  if (target) place(p.id, target.id, event.key === 'ArrowUp' ? 'before' : 'after');
                 }}
               >
                 {p.title || 'Untitled'}
+                {count > 0 && (
+                  <span className="sr-only">, {plural(count, 'match', 'matches')}</span>
+                )}
               </button>
+              {count > 0 && (
+                <span className="knowledge-count" aria-hidden="true">
+                  {count}
+                </span>
+              )}
             </div>
           </PageRowMenu>
-          {hasChildren && !collapsed[p.id] && (
+          {!!children.get(p.id)?.length && (
             <ul className="wiki-tree-children">{tree(p.id, depth + 1, next)}</ul>
           )}
         </li>
@@ -1358,54 +1489,44 @@ export function ProjectDocsPanel({
   }
   const pageActions: PageActions = {
     onAskAgent: askAgent,
-    onPlanTasks: () => (connection ? setPlanning(true) : connectThen('plan')),
-    taskCount: plannedTaskCount,
+    onMakeTasks: makeTasks,
     planTasksDisabled: planReason,
     onConnectBoard: connection ? undefined : () => connectThen('link'),
     onLinkTask: (task) => void setLink(task, true),
-    onUnlinkTask: (task) => void setLink(task, false),
     onMakeTask: (text) => void makeTask(text),
   };
+  const [otherRepository, setOtherRepository] = useState('');
+  const repositoryValue = repositoryChoice?.value || '';
+  const closeChoice = (value: string | null) => {
+    repositoryChoice?.resolve(value);
+    setRepositoryChoice(null);
+    setOtherRepository('');
+  };
+  const typedRepository = otherRepository.trim();
+  const chosenRepository = typedRepository || repositoryValue;
   return (
     <section className="project-docs knowledge" aria-label="Knowledge" data-rail-open={railOpen}>
       <aside className="knowledge-rail" aria-label="Knowledge sections">
-        <div className="knowledge-rail-top">
-          {search}
-          <Hint label="New page">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="New page"
-              disabled={busy}
-              onClick={() => newPage(null)}
-            >
-              <Plus />
-            </Button>
-          </Hint>
-        </div>
+        {find}
         <div className="knowledge-rail-scroll">
           {railLead}
-          {hasPages && (
+          {pages.length > 0 && (
             <nav aria-label="Pages" className="knowledge-rail-pages">
               <ul className="wiki-page-tree">{tree(null)}</ul>
             </nav>
           )}
-          {/* Deleted pages shows only when there is a page to restore. */}
-          {trashCount > 0 && (
-            <NavRow
-              className="knowledge-rail-muted"
-              size="sm"
-              icon={<Trash2 aria-hidden="true" />}
-              label="Deleted pages"
-              onClick={() => {
-                if (busy) return;
-                void action(async () => {
-                  setDeletedPages(await api.docsTrash(group.id));
-                });
-              }}
-            />
-          )}
         </div>
+        <button
+          type="button"
+          className="knowledge-new-page"
+          aria-keyshortcuts={newPageKeys}
+          disabled={busy}
+          onClick={() => newPage(null)}
+        >
+          <Plus size={16} aria-hidden="true" />
+          New page
+          <kbd aria-hidden="true">{shortcutLabel(['mod', 'alt'], 'N')}</kbd>
+        </button>
       </aside>
       {error && !pane && (
         <Alert variant="destructive" size="sm" className="knowledge-error">
@@ -1415,14 +1536,7 @@ export function ProjectDocsPanel({
       {pane ? (
         <div className="knowledge-pane">{pane}</div>
       ) : page && page.id === selected ? (
-        <div
-          ref={workspace}
-          className="doc-workspace"
-          // The document bar shows its bottom border only after the page scrolls.
-          onScroll={(e) =>
-            e.currentTarget.toggleAttribute('data-scrolled', e.currentTarget.scrollTop > 0)
-          }
-        >
+        <div ref={workspace} className="doc-workspace">
           <DocEditor
             key={JSON.stringify([group.hostId, group.rootPath, group.id, page.id])}
             api={api}
@@ -1450,8 +1564,8 @@ export function ProjectDocsPanel({
             actions={pageActions}
             switcher={switcher}
             tasks={boardTasks}
-            linkedTasks={tasksForPage(page.id, taskLinks, boardTasks)}
             readCount={readCounts?.[page.id]}
+            repoColor={repoColor}
             heading={heading}
             onDelete={() => {
               setError('');
@@ -1467,9 +1581,8 @@ export function ProjectDocsPanel({
         </div>
       ) : (
         <div className="knowledge-pane">
-          {switcher && <div className="knowledge-pane-bar">{switcher}</div>}
+          {switcher && <div className="knowledge-switcher-row">{switcher}</div>}
           <EmptyState
-            icon={<BookOpen />}
             title={
               loading || pageLoading
                 ? 'Loading pages…'
@@ -1489,15 +1602,6 @@ export function ProjectDocsPanel({
           />
         </div>
       )}
-      {(connection || planning) && !planReason && (
-        <DocsToIssuesDialog
-          api={api}
-          group={group}
-          open={planning}
-          onOpenChange={setPlanning}
-          pageId={page?.id}
-        />
-      )}
       {boardTasks !== undefined && (
         <TaskPicker
           open={linking}
@@ -1507,13 +1611,52 @@ export function ProjectDocsPanel({
           onCloseAutoFocus={(event) => event.preventDefault()}
         />
       )}
+      <Dialog open={!!repositoryChoice} onOpenChange={(open) => !open && closeChoice(null)}>
+        <DialogContent layout="scroll">
+          <DialogHeader>
+            <DialogTitle>Repository for new tasks</DialogTitle>
+            <DialogDescription className="sr-only">
+              Kalkidan adds the tasks as issues in this GitHub repository.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="grid gap-3">
+            {boardRepositories.length > 0 && (
+              <Choice
+                label="Repository"
+                value={repositoryValue || boardRepositories[0]}
+                onChange={(value) =>
+                  setRepositoryChoice((current) => current && { ...current, value })
+                }
+                options={boardRepositories.map((value) => ({ value, label: value }))}
+              />
+            )}
+            <Input
+              aria-label="Other repository"
+              placeholder="owner/repository"
+              value={otherRepository}
+              onChange={(event) => setOtherRepository(event.target.value)}
+            />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => closeChoice(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!/^[\w.-]+\/[\w.-]+$/.test(chosenRepository || boardRepositories[0] || '')}
+              onClick={() => closeChoice(chosenRepository || boardRepositories[0] || null)}
+            >
+              Use repository
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={deletedPages !== null}
         onOpenChange={(open) => !open && !busy && setDeletedPages(null)}
       >
         <DialogContent layout="scroll">
           <DialogHeader>
-            <DialogTitle>Deleted pages</DialogTitle>
+            <DialogTitle>Recently deleted</DialogTitle>
             <DialogDescription className="sr-only">
               Restore a page to the project. A page goes to the top level if its parent page was
               deleted.
@@ -1560,7 +1703,7 @@ export function ProjectDocsPanel({
                 ))}
               </ul>
             ) : (
-              <EmptyState compact icon={<Trash2 />} title="No deleted pages" />
+              <EmptyState compact title="No deleted pages" />
             )}
           </DialogBody>
         </DialogContent>

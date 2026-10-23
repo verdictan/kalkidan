@@ -2,56 +2,81 @@ import type { Page } from '@playwright/test';
 
 const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** The project rows of the sidebar tree. */
+const projectRows = (page: Page) => page.locator('.tree-row[data-kind="project"]');
+
+/** Expands a tree row (project or repo) when it is collapsed. */
+async function expandRow(row: ReturnType<Page['locator']>) {
+  const toggle = row.locator('.tree-toggle');
+  if ((await toggle.count()) && /^Expand /.test((await toggle.getAttribute('aria-label')) || ''))
+    await toggle.click();
+}
+
 /**
- * Opens a code folder page. The sidebar shows projects and chats only, so the test opens the
- * project overview and selects the code folder there. Without a name, it opens the first code
- * folder of the first project that has one.
+ * Shows a repo (code folder) in the sidebar tree: it opens the project Overview, then expands
+ * the project and the repo, so the repo's sessions show. Without a name, it uses the first repo
+ * of the first project that has one.
  */
 export async function openCodeFolder(page: Page, name?: string) {
-  const projects = page.locator('.project-tree .project-select');
+  const projects = projectRows(page);
   await projects.first().waitFor();
   const count = await projects.count();
   for (let index = 0; index < count; index++) {
-    await projects.nth(index).click();
-    const rows = page.locator('.project-home-section .folder-chip');
-    const row = name
-      ? rows.filter({
-          has: page.locator('.folder-chip-name', { hasText: new RegExp(`^${escape(name)}$`) }),
+    const project = projects.nth(index);
+    await project.locator('.tree-row-button').click();
+    await expandRow(project);
+    const repos = page.locator('.tree-row[data-kind="repo"]');
+    const repo = name
+      ? repos.filter({
+          has: page.locator('.tree-label', { hasText: new RegExp(`^${escape(name)}$`) }),
         })
-      : rows;
+      : repos;
     try {
-      await row.first().waitFor({ timeout: count > 1 ? 3000 : 10000 });
+      await repo.first().waitFor({ timeout: count > 1 ? 3000 : 10000 });
     } catch {
       continue;
     }
-    await row.first().click();
+    await expandRow(repo.first());
     return;
   }
   throw new Error(`No project shows the code folder ${name || ''}`.trim());
 }
 
+/** Opens a session (chat) from the sidebar tree by its title. */
+export async function openTreeChat(page: Page, title: string) {
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: `Chat: ${title}`, exact: true })
+    .click();
+}
+
 /**
- * Opens a tab of a project page, such as Docs or Memory. Without a project name, it uses the
- * project that shows, or else the first project in the sidebar.
+ * Opens a view of a project page: Overview, Tasks or Knowledge (Docs and Memory are parts of
+ * Knowledge). Without a project name, it uses the project that shows, or the first project.
  */
 export async function openProjectTab(page: Page, tab: string, project?: string) {
   const tabs = page.getByRole('navigation', { name: 'Project page' });
   if (project || !(await tabs.isVisible())) {
     const row = project
-      ? page.locator('.project-tree').getByRole('button', { name: project, exact: true })
-      : page.locator('.project-tree .project-select').first();
-    await row.click();
+      ? projectRows(page).filter({
+          has: page.locator('.tree-label', { hasText: new RegExp(`^${escape(project)}$`) }),
+        })
+      : projectRows(page);
+    await row.first().locator('.tree-row-button').click();
   }
-  // Docs and Memory are parts of the Knowledge tab now.
   const section = { Docs: 'pages', Memory: 'memory' }[tab];
   await tabs.getByRole('button', { name: section ? 'Knowledge' : tab, exact: true }).click();
   if (section === 'memory') await page.getByRole('button', { name: 'Memory', exact: true }).click();
 }
 
-/** Opens the Add code folders dialog of a project from its row menu in the sidebar. */
+/** Opens Add repo for a project from its right-click menu in the sidebar tree. */
 export async function openAddCodeFolders(page: Page, project: string) {
-  await page.getByRole('button', { name: `Manage project ${project}`, exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Add code folder…', exact: true }).click();
+  await projectRows(page)
+    .filter({ has: page.locator('.tree-label', { hasText: new RegExp(`^${escape(project)}$`) }) })
+    .first()
+    .locator('.tree-row-button')
+    .click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Add repo…', exact: true }).click();
 }
 
 /**

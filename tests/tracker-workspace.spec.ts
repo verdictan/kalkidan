@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 import { openProjectTab } from './helpers/navigation';
 
@@ -159,4 +160,209 @@ test('failed initial status leaves one created item available for a status retry
       .getByRole('button', { name: 'Only create once', exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('alert')).not.toBeVisible();
+});
+
+/**
+ * A GitHub board with one code folder (atlas-web) and the given items. Each tracker write goes
+ * to `window.calls`, so a test can check the GitHub writes in their order.
+ */
+async function draftBoard(page: Page, seed: Record<string, unknown>[] = []) {
+  await page.addInitScript((seed) => {
+    const project = {
+      id: 'p',
+      title: 'Roadmap',
+      owner: 'example',
+      number: 1,
+      url: 'https://github.com/orgs/example/projects/1',
+    };
+    const items: any[] = structuredClone(seed);
+    const calls: unknown[][] = [];
+    (window as any).calls = calls;
+    let next = 0;
+    let issue = 150;
+    (window as any).workspace = {
+      snapshot: async () => ({
+        projects: [
+          {
+            id: 'r',
+            name: 'atlas-web',
+            path: '/tmp/atlas-web',
+            notes: '',
+            favorite: false,
+            addedAt: '',
+          },
+        ],
+        sessions: [],
+        warnings: [],
+        platform: 'darwin',
+        groups: [
+          { id: 'g', name: 'Platform', repoIds: ['r'], tracker: { provider: 'github', project } },
+        ],
+      }),
+      git: async () => null,
+      workingStatus: async () => ({ branch: '' }),
+      trackerProviders: async () => [
+        {
+          id: 'github',
+          name: 'GitHub',
+          capabilities: {
+            createItem: true,
+            updateStatus: true,
+            importItem: false,
+            createProject: false,
+          },
+          statusNames: { progress: 'In progress', done: 'Done' },
+        },
+      ],
+      trackerBoard: async () => ({
+        project,
+        writable: true,
+        items: structuredClone(items),
+        statusField: {
+          id: 'status',
+          options: [
+            { id: 'todo', name: 'Todo' },
+            { id: 'progress', name: 'In progress' },
+          ],
+        },
+      }),
+      trackerDraft: async (_group: string, title: string, body: string) => {
+        const id = `draft-${++next}`;
+        calls.push(['draft', title, body]);
+        items.push({ id, title, body, kind: 'DraftIssue', statusId: 'todo', status: 'Todo' });
+        return id;
+      },
+      trackerStatus: async (_group: string, id: string, status: string) => {
+        calls.push(['status', id, status]);
+        Object.assign(
+          items.find((item) => item.id === id),
+          { statusId: status, status: status === 'todo' ? 'Todo' : 'In progress' },
+        );
+      },
+      trackerItemAction: async (_group: string, id: string, action: any) => {
+        calls.push(['item', id, action]);
+        const index = items.findIndex((item) => item.id === id);
+        if (action.kind === 'remove') items.splice(index, 1);
+        if (action.kind === 'convert')
+          Object.assign(items[index], {
+            kind: 'Issue',
+            number: ++issue,
+            repository: action.repository,
+            url: `https://github.com/${action.repository}/issues/${issue}`,
+          });
+      },
+      trackerContent: async (_group: string, id: string) => {
+        const item = items.find((value) => value.id === id);
+        return {
+          id: 'issue-' + id,
+          kind: 'Issue',
+          title: item.title,
+          body: item.body,
+          state: item.closed ? 'CLOSED' : 'OPEN',
+          revision: 'r1',
+          permissions: { edit: true, close: true, reopen: true, assign: true, label: true },
+          assignees: [],
+          labels: [],
+          comments: [],
+        };
+      },
+      trackerContentChange: async (_group: string, id: string, revision: string, action: any) => {
+        calls.push(['content', id, revision, action]);
+        items.find((item) => item.id === id).closed = true;
+        return {};
+      },
+      dispatchPrepare: async (request: any) => {
+        calls.push(['dispatch', request.tasks.map((task: any) => task.taskId)]);
+        return { id: 'run' };
+      },
+      dispatchStart: async () => ({ id: 'run', tasks: [] }),
+    };
+  }, seed);
+}
+const calls = (page: Page) => page.evaluate(() => (window as any).calls as unknown[][]);
+/** The last toast with this text. Its live-region copy has no buttons. */
+const toast = (page: Page, text: string) =>
+  page.getByRole('status').filter({ hasText: text }).last();
+
+test('a draft becomes an issue on Start, and Undo closes the issue and puts a draft back', async ({
+  page,
+}) => {
+  await draftBoard(page);
+  await page.goto('/');
+  await openProjectTab(page, 'Tasks');
+  // ⌘⏎ in the New task field adds the task and starts it. The draft becomes an issue first.
+  await page.getByRole('button', { name: 'New task', exact: true }).click();
+  const todo = page.getByRole('region', { name: 'Todo column', exact: true });
+  const quick = todo.getByRole('textbox', { name: 'New task title', exact: true });
+  await quick.fill('Write the release notes');
+  await quick.press('ControlOrMeta+Enter');
+  const converted = toast(page, 'Converted 1 draft to an issue.');
+  await expect(converted).toBeVisible();
+  expect(await calls(page)).toEqual([
+    ['draft', 'Write the release notes', ''],
+    ['status', 'draft-1', 'todo'],
+    ['item', 'draft-1', { kind: 'convert', repository: 'example/atlas-web' }],
+  ]);
+  // Undo closes the new issue as not planned and puts a draft with the same text in its column.
+  await converted.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect
+    .poll(async () => (await calls(page)).slice(3))
+    .toEqual([
+      ['draft', 'Write the release notes', ''],
+      ['status', 'draft-2', 'todo'],
+      ['content', 'draft-1', 'r1', { kind: 'close', reason: 'not-planned' }],
+      ['item', 'draft-1', { kind: 'remove' }],
+    ]);
+  await openProjectTab(page, 'Tasks');
+  await expect(
+    todo.getByRole('button', { name: 'Write the release notes', exact: true }),
+  ).toHaveCount(1);
+});
+
+test('Start N in the selection bar converts the drafts, and Undo reverts each one', async ({
+  page,
+}) => {
+  await draftBoard(page, [
+    { id: 'a', title: 'Draft A', body: 'Body A', kind: 'DraftIssue', statusId: 'todo' },
+    { id: 'b', title: 'Draft B', body: 'Body B', kind: 'DraftIssue', statusId: 'progress' },
+  ]);
+  await page.goto('/');
+  await openProjectTab(page, 'Tasks');
+  const board = page.getByRole('region', { name: 'Tracker board', exact: true });
+  await board
+    .getByRole('button', { name: 'Draft A', exact: true })
+    .click({ modifiers: ['ControlOrMeta'] });
+  await board
+    .getByRole('button', { name: 'Draft B', exact: true })
+    .click({ modifiers: ['ControlOrMeta'] });
+  await page
+    .getByRole('toolbar', { name: 'Selected tasks', exact: true })
+    .getByRole('button', { name: /^Start 2 tasks with / })
+    .click();
+  const converted = toast(page, 'Converted 2 drafts to issues.');
+  await expect(converted).toBeVisible();
+  expect(await calls(page)).toEqual([
+    ['item', 'a', { kind: 'convert', repository: 'example/atlas-web' }],
+    ['item', 'b', { kind: 'convert', repository: 'example/atlas-web' }],
+    ['dispatch', ['a', 'b']],
+  ]);
+  await converted.getByRole('button', { name: 'Undo', exact: true }).click();
+  // Each draft goes back to the column of its issue: A to Todo, B to In progress.
+  await expect
+    .poll(async () => (await calls(page)).slice(3))
+    .toEqual([
+      ['draft', 'Draft A', 'Body A'],
+      ['status', 'draft-1', 'todo'],
+      ['content', 'a', 'r1', { kind: 'close', reason: 'not-planned' }],
+      ['item', 'a', { kind: 'remove' }],
+      ['draft', 'Draft B', 'Body B'],
+      ['status', 'draft-2', 'progress'],
+      ['content', 'b', 'r1', { kind: 'close', reason: 'not-planned' }],
+      ['item', 'b', { kind: 'remove' }],
+    ]);
+  await expect(
+    board
+      .getByRole('region', { name: 'In progress column', exact: true })
+      .getByRole('button', { name: 'Draft B', exact: true }),
+  ).toBeVisible();
 });

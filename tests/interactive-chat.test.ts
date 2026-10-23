@@ -270,7 +270,7 @@ test('codex: a gateway refusal of the ChatGPT login has its own words and a Diag
     assert.equal(state.errorCode, 'desktop.codex_gateway_auth_missing');
     // The chat does not say "not signed in". It says what failed and offers Try again.
     const shown = agentErrorMessage(`${state.error} ${state.errorCode}`, 'codex');
-    assert.match(shown.message, /did not send its ChatGPT sign-in to the managed gateway/);
+    assert.match(shown.message, /did not send its ChatGPT sign-in to the Verdictan gateway/);
     assert.doesNotMatch(shown.message, /is not signed in/);
     assert.equal(shown.action?.kind, 'retry');
     const record = journal

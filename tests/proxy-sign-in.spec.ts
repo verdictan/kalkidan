@@ -22,18 +22,9 @@ test('a proxy sign-in prompt sends the answer once, and a saved sign-in can be r
       }),
       trackerProviders: async () => [],
       remoteHosts: async () => [],
-      helperUpdates: async () => [],
-      agentInstallations: async () => [],
       githubCliCheck: async () => ({ status: 'missing' }),
       githubAuthStatus: async () => ({ status: 'idle' }),
       verdictanStatus: async () => ({ region: 'eu', phase: 'signed-out', executionReady: false }),
-      runtimeUpdateStatus: async () => ({
-        hostId: 'local',
-        component: 'verdictan',
-        discovery: 'current',
-        stale: false,
-        history: [],
-      }),
       onProxyLogin: (listener: (request: unknown) => void) => {
         state.listener = listener;
         return () => (state.listener = undefined);
@@ -90,8 +81,8 @@ test('a proxy sign-in prompt sends the answer once, and a saved sign-in can be r
     'prompt-2',
     null,
   ]);
-  // Settings › Computers lists the saved sign-in without its password, with Remove.
-  const settings = await openSettings(page, 'Computers');
+  // Settings › Tools lists the saved sign-in without its password, with Remove.
+  const settings = await openSettings(page, 'Tools');
   const saved = settings.getByRole('region', { name: 'Proxy sign-in' });
   await expect(saved).toContainText('proxy.corp.example:3128');
   await expect(saved).toContainText('dev · Saved in the secret store of this computer');

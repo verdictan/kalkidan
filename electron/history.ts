@@ -5,6 +5,14 @@ import { contentText, hasHiddenContext, visibleUserText } from './transcript';
 import { readdir, stat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Session } from '../src/types';
+import type { SubagentSession } from '../src/domain/desktop';
+import {
+  claudeSubagents,
+  codexParentThread,
+  codexSessionMeta,
+  codexSubagentType,
+  subagentActiveMs,
+} from './subagents';
 async function files(root: string): Promise<string[]> {
   try {
     const entries = await readdir(root, { withFileTypes: true });
@@ -74,17 +82,85 @@ async function codexTitle(title: string, path: string) {
   if (!hasHiddenContext(visible)) return visible || 'Agent session';
   return (path && (await firstUserTitle(path, 'codex'))) || 'Agent session';
 }
-const parsedFiles = new Map<string, { stamp: string; cwd: string; id: string; title: string }>();
+const parsedFiles = new Map<
+  string,
+  { stamp: string; cwd: string; id: string; title: string; parent?: string; type?: string }
+>();
+/** The subagents of each Claude Code session file, kept while the file and its folder stay. */
+const subagentCache = new Map<string, { stamp: string; value: SubagentSession[] }>();
+/** The parent of each indexed Codex thread, from the head of its file. */
+const codexParents = new Map<string, { stamp: string; parent?: string; type?: string }>();
+async function fileStamp(path: string) {
+  try {
+    const info = await stat(path);
+    return [info.ino, info.size, info.mtimeMs].join(':');
+  } catch {
+    return '';
+  }
+}
+/** The subagents of a Claude Code session. Read again when the session or its folder changes. */
+async function cachedClaudeSubagents(path: string, id: string, stamp: string) {
+  const folder = join(path, '..', id, 'subagents');
+  const key = stamp + '|' + (await fileStamp(folder));
+  const cached = subagentCache.get(path);
+  // A subagent that works can stop without a change of its files, so read it again.
+  if (cached?.stamp === key && !cached.value.some((item) => item.status === 'running'))
+    return structuredClone(cached.value);
+  const value = await claudeSubagents(path, id);
+  subagentCache.set(path, { stamp: key, value });
+  return structuredClone(value);
+}
+async function codexParent(path: string) {
+  const stamp = await fileStamp(path);
+  if (!stamp) return {};
+  const cached = codexParents.get(path);
+  if (cached?.stamp === stamp) return cached;
+  const meta = await codexSessionMeta(path);
+  const value = { stamp, parent: codexParentThread(meta), type: codexSubagentType(meta) };
+  codexParents.set(path, value);
+  return value;
+}
+/**
+ * Moves each Codex thread that another thread spawned into the subagents of that thread. A
+ * thread whose parent is not in the list stays a session.
+ */
+export function nestCodexSubagents(
+  sessions: Session[],
+  parents: Map<string, { parent?: string; type?: string; changed?: number }>,
+  now = Date.now(),
+) {
+  const byId = new Map(
+    sessions.filter((item) => item.agent === 'codex').map((item) => [item.id, item]),
+  );
+  return sessions.filter((session) => {
+    if (session.agent !== 'codex') return true;
+    const info = parents.get(session.id);
+    const parent = info?.parent ? byId.get(info.parent) : undefined;
+    if (!parent || parent === session) return true;
+    const changed = Date.parse(session.updatedAt);
+    (parent.subagents ??= []).push({
+      id: session.id,
+      title: session.title,
+      status: now - changed < subagentActiveMs ? 'running' : 'done',
+      ...(info?.type ? { type: info.type } : {}),
+      updatedAt: session.updatedAt,
+    });
+    parent.subagents.sort((a, b) => (a.updatedAt || '').localeCompare(b.updatedAt || ''));
+    return false;
+  });
+}
 export const historyMetrics = { parsedFiles: 0, cacheHits: 0 };
 async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<string, string>) {
   const sessions: Session[] = [];
   const warnings: string[] = [];
   const indexed = new Set<string>();
   const seen = new Set<string>();
+  const parents = new Map<string, { parent?: string; type?: string }>();
   try {
     for (const entry of await codexIndex(codexRoot)) {
       indexed.add(entry.session.id);
       if (entry.archived) continue;
+      if (entry.path) parents.set(entry.session.id, await codexParent(entry.path));
       entry.session.cwd = await realpath(entry.session.cwd).catch(() => entry.session.cwd);
       entry.session.title = await codexTitle(entry.session.title, entry.path);
       sessions.push(entry.session);
@@ -126,7 +202,9 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
           const cached = parsedFiles.get(path);
           let cwd = cached?.stamp === stamp ? cached.cwd : '',
             id = cached?.stamp === stamp ? cached.id : '',
-            title = cached?.stamp === stamp ? cached.title : '';
+            title = cached?.stamp === stamp ? cached.title : '',
+            parent = cached?.stamp === stamp ? cached.parent : undefined,
+            type = cached?.stamp === stamp ? cached.type : undefined;
           if (cached?.stamp === stamp) historyMetrics.cacheHits++;
           else {
             historyMetrics.parsedFiles++;
@@ -138,6 +216,8 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
                 if (agent === 'codex' && row.type === 'session_meta') {
                   cwd = row.payload?.cwd;
                   id = row.payload?.id;
+                  parent = codexParentThread(row.payload);
+                  type = codexSubagentType(row.payload);
                 }
                 if (agent === 'claude') {
                   if (row.isSidechain) continue;
@@ -150,7 +230,14 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
                 /* Truncated or unsupported lines are skipped. */
               }
             }
-            parsedFiles.set(path, { stamp, cwd, id, title });
+            parsedFiles.set(path, {
+              stamp,
+              cwd,
+              id,
+              title,
+              ...(parent ? { parent } : {}),
+              ...(type ? { type } : {}),
+            });
           }
           if (
             typeof cwd === 'string' &&
@@ -164,12 +251,16 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
             cwd = await realpath(cwd).catch(() => cwd);
             seen.add(agent + ':' + id);
             sources?.set(`${agent}:${id}`, path);
+            if (agent === 'codex' && parent) parents.set(id, { parent, type });
+            const subagents =
+              agent === 'claude' ? await cachedClaudeSubagents(path, id, stamp) : [];
             sessions.push({
               agent,
               cwd,
               id,
               title: title || 'Agent session',
               updatedAt: new Date(time).toISOString(),
+              ...(subagents.length ? { subagents } : {}),
             });
           }
         } catch {
@@ -182,7 +273,12 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
       warnings.push(`Cannot read ${agent} history. Check folder permissions.`);
     }
   }
-  return { sessions: sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), warnings };
+  return {
+    sessions: nestCodexSubagents(sessions, parents).sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt),
+    ),
+    warnings,
+  };
 }
 
 const scans = new Map<

@@ -1,0 +1,388 @@
+/*
+ * Tasks (TK-A "Live board"). This file comes after projects.css, so its rules replace the
+ * round-10 rules of the same name. The board uses the full width of the page.
+ */
+
+/* One 28px bar: the board name (the menu), the exceptions, then search and New task. */
+.tracker-filterbar {
+  gap: var(--space-3);
+  min-height: 28px;
+  padding-bottom: var(--space-4);
+}
+.tracker-board-name {
+  height: 28px;
+  gap: 6px;
+  padding: 0 var(--space-2);
+}
+.tracker-board-name > svg:first-child {
+  width: 16px;
+  height: 16px;
+}
+
+/* The columns share the width, 16px apart. Empty columns say nothing and accept a drop. */
+.tracker-board {
+  gap: var(--space-4);
+}
+.tracker-board[data-dimmed] .tracker-column {
+  opacity: 0.4;
+  transition: opacity var(--motion-fast);
+}
+.tracker-column-heading {
+  gap: var(--space-2);
+  min-height: 28px;
+  margin-bottom: var(--space-2);
+}
+
+/* A card: the grey fill, 12px inside, 4px between the title, the meta and the live line. */
+.tracker-task {
+  gap: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--fill);
+}
+.tracker-task:hover {
+  background: var(--fill-strong);
+}
+.tracker-task[data-selected] {
+  background: var(--background);
+}
+.tracker-task [data-slot='card-content'] {
+  gap: var(--space-1);
+}
+.tracker-task .tracker-task-select {
+  top: var(--space-3);
+  right: var(--space-3);
+}
+/* While the user selects, only the selected cards show a box; hover shows the box of a card. */
+[data-selecting] .tracker-task:not([data-selected]) .tracker-task-select {
+  opacity: 0;
+}
+[data-selecting] .tracker-task:not([data-selected]):is(:hover, :focus-within) .tracker-task-select {
+  opacity: 1;
+}
+/* The meta line always shows (TK-12). */
+.tracker-task-meta {
+  gap: 6px;
+  line-height: 16px;
+}
+.tracker-task-repo {
+  min-width: 0;
+}
+/* Start floats at the bottom right over a fade of the card fill, so the card keeps its size. */
+.tracker-task .tracker-task-actions {
+  right: var(--space-2);
+  bottom: var(--space-2);
+  padding-left: var(--space-4);
+  background: linear-gradient(to right, transparent, var(--fill-strong) var(--space-4));
+}
+.tracker-task-start {
+  height: 24px;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  background: var(--background);
+  font-size: var(--text-xs);
+}
+.tracker-task-start:hover {
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/*
+ * The live line (TK-1): the chat dot, what the agent does, then the status glyph. A 1px line
+ * separates it from the meta line. Allow sits at the end while the chat waits.
+ */
+.tracker-task-live {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-xs);
+  line-height: 16px;
+}
+.tracker-task-live-open {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  text-align: left;
+  outline: none;
+}
+.tracker-task-live:is([data-state='approval'], [data-state='question']) .tracker-task-live-open {
+  color: var(--foreground);
+}
+button.tracker-task-live-open {
+  cursor: pointer;
+}
+button.tracker-task-live-open:hover > .truncate {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+button.tracker-task-live-open:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-task-live .status-glyph {
+  margin-left: 0;
+}
+.tracker-task-allow {
+  flex-shrink: 0;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 var(--space-2);
+  background: var(--background);
+  font-size: var(--text-xs);
+}
+.tracker-task-allow:hover {
+  background: var(--background);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* New task: a white card with the title field, then the repo chip and the keys. */
+.tracker-quick-add {
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+}
+.tracker-quick-meta {
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-1);
+}
+.tracker-quick-folder {
+  flex: 0 1 auto;
+  max-width: 100%;
+  height: 24px;
+  margin-left: calc(-1 * var(--space-2));
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  cursor: pointer;
+  outline: none;
+}
+.tracker-quick-folder:hover,
+.tracker-quick-folder[data-state='open'] {
+  background: var(--fill);
+}
+.tracker-quick-folder:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-quick-folder > svg {
+  color: var(--muted-foreground);
+}
+
+/* "3 selected │ ▷ Start 3 with Codex │ Move to ▾ │ ✕". */
+.tracker-selection-bar {
+  padding: 0 6px 0 var(--space-4);
+}
+.tracker-selection-count {
+  font-weight: 500;
+}
+
+/*
+ * The task sheet (TK-A2): 440px, no scrim, a shadow on the board side. The board stays live.
+ */
+.tracker-issue-detail {
+  border-left: 1px solid var(--border) !important;
+  box-shadow: -16px 0 40px rgb(0 0 0 / 0.06) !important;
+}
+.tracker-issue-nav {
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: 0 var(--space-3);
+}
+.tracker-issue-body {
+  gap: var(--space-4);
+  padding: var(--space-1) var(--space-6) var(--space-6);
+}
+.tracker-sheet-head {
+  gap: var(--space-1);
+}
+.tracker-issue-title {
+  font-size: 18px;
+  line-height: 28px;
+  font-weight: 600;
+}
+/* "Todo · #142 · Search API spec": the links that exist, 12px muted. */
+.tracker-sheet-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+}
+.tracker-sheet-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  outline: none;
+}
+.tracker-sheet-link:hover:not(:disabled) {
+  color: var(--foreground);
+}
+.tracker-sheet-link:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.tracker-sheet-link > svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.tracker-sheet-link .status-glyph {
+  margin-left: 0;
+}
+/* One 32px row: the repo, then Start at the right edge. */
+.tracker-start-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.tracker-start-repo {
+  min-width: 0;
+  max-width: 60%;
+  gap: 6px;
+}
+.tracker-start-repo > svg {
+  width: 14px;
+  height: 14px;
+  color: var(--muted-foreground);
+}
+.tracker-start-row .split-button {
+  margin-left: auto;
+}
+.tracker-radio-row .identity-mark {
+  margin-left: 2px;
+}
+
+/* The agent menu of Start: "Found on this Mac", each agent with its version. */
+.tracker-agent-menu {
+  width: 232px;
+}
+.task-agent-tile {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--foreground);
+  color: var(--background);
+}
+.task-agent-tile > svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+.task-agent-tile[data-missing] {
+  background: var(--fill-strong);
+  color: var(--muted-foreground);
+}
+.task-agent-version {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.task-agent-tools {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+
+/*
+ * Connect (TK-A3): on the content edge, at the top of the page body. The code waits in one row with
+ * a live state; the board list follows, dimmed until GitHub approves.
+ */
+.connect-board[data-variant='page'] {
+  max-width: 480px;
+  margin: 0;
+}
+.connect-board-title {
+  margin: 0;
+  font-size: 15px;
+  line-height: 24px;
+}
+.connect-code {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 56px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.connect-code-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font:
+    600 20px/1 ui-monospace,
+    'SF Mono',
+    Menlo,
+    monospace;
+  letter-spacing: 0.12em;
+}
+.connect-code-state {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+}
+.connect-code-state .status-glyph {
+  margin-left: 0;
+}
+.connect-board-list {
+  gap: 0;
+}
+.connect-board-row,
+.connect-board-new {
+  min-height: 48px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+}
+.connect-board-row:hover:not(:disabled),
+.connect-board-row:focus-visible,
+.connect-board-new:hover:not(:disabled),
+.connect-board-row[data-first] {
+  background: var(--fill);
+}
+.connect-board-new {
+  border-style: none;
+}
+.connect-board-list[data-preview] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.connect-board-skeleton {
+  display: block;
+  width: 40%;
+  height: 12px;
+  border-radius: var(--radius-xs);
+  background: var(--fill-strong);
+}

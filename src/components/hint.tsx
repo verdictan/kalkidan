@@ -80,7 +80,7 @@ export function Hint({
       </TooltipTrigger>
       <TooltipContent sideOffset={6} className={shortcut ? 'flex items-center gap-2' : undefined}>
         {label}
-        {shortcut && <kbd className="kbd h-4">{shortcut}</kbd>}
+        {shortcut && <kbd className="kbd h-4 text-background/60">{shortcut}</kbd>}
       </TooltipContent>
     </Tooltip>
   );

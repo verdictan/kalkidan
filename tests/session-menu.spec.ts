@@ -1,6 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect, openPalette, palette } from './helpers/app';
-import { openCodeFolder } from './helpers/navigation';
+import { openCodeFolder, openTreeChat } from './helpers/navigation';
 /** Runs an action of the open chat from the command palette. */
 async function runFromPalette(page: Page, name: RegExp) {
   const input = await openPalette(page);
@@ -9,16 +9,10 @@ async function runFromPalette(page: Page, name: RegExp) {
 }
 async function openSession(page: Page) {
   await page.goto('/');
-  await page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true }).click();
   await openCodeFolder(page);
-  await page
-    .getByRole('button', { name: /^Resume / })
-    .first()
-    .click();
+  await page.locator('.tree-row[data-kind="session"] .tree-row-button').first().click();
 }
-test('session actions rename, pin, fork, and open an independent side session', async ({
-  page,
-}) => {
+test('session actions rename, pin, and fork a chat', async ({ page }) => {
   await openSession(page);
   const menu = () => page.getByRole('button', { name: 'Chat actions', exact: true }).click();
   await menu();
@@ -29,11 +23,10 @@ test('session actions rename, pin, fork, and open an independent side session', 
   await expect(page.locator('.conversation-toolbar-title')).toContainText('Release review');
   await menu();
   await page.getByRole('menuitem', { name: /^Pin/ }).click();
+  // A pinned chat is the first chat of its repo in the tree.
   await expect(
-    page
-      .getByRole('navigation', { name: 'Projects and repositories' })
-      .getByRole('button', { name: 'Resume pinned Release review', exact: true }),
-  ).toBeVisible();
+    page.locator('.tree-row[data-kind="session"]').first().locator('.tree-label'),
+  ).toHaveText('Release review');
   await menu();
   await expect(page.getByRole('menuitem', { name: /^Unpin/ })).toBeVisible();
   // "Fork chat…" is the one way to copy a chat. Its dialog forks to this folder first.
@@ -48,19 +41,15 @@ test('session actions rename, pin, fork, and open an independent side session', 
   await expect(page.locator('.conversation-toolbar-title:visible')).toContainText(
     'Release review (fork)',
   );
-  // "Open side chat" is in ⌘K, not in the chat menu.
+  // The side chat is gone: no menu item and no palette action open one.
   await menu();
-  await expect(page.getByRole('menuitem', { name: /^Open side chat/ })).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: /side chat|Open beside/ })).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await runFromPalette(page, /^Open side chat/);
-  await expect(page.getByLabel('Message agent')).toHaveCount(3);
-  await expect(page.getByRole('button', { name: 'Close side chat' })).toBeVisible();
-  await page.screenshot({ animations: 'disabled', path: 'test-results/side-session.png' });
-  // The new side chat takes the focus, so no tooltip covers its close button.
-  await expect(page.locator('.agent-pane[data-side] textarea')).toBeFocused();
-  await expect(page.getByRole('tooltip')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close side chat' }).click();
-  await expect(page.getByRole('button', { name: 'Close side chat' })).toHaveCount(0);
+  const input = await openPalette(page);
+  await input.fill('side chat');
+  await expect(palette(page).getByRole('option', { name: /^Open side chat/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByLabel('Message agent').filter({ visible: true })).toHaveCount(1);
 });
 test('archive closes the session at once and the toast can undo it', async ({ page }) => {
   await openSession(page);
@@ -137,7 +126,7 @@ test('usage history loads on open and shows duration and subscription cost', asy
   });
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
+  await openTreeChat(page, 'Review');
   await runFromPalette(page, /^Usage history…/);
   const dialog = page.getByRole('dialog', { name: 'Usage history' });
   // The history loads without a button press.

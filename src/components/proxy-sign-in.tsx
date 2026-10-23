@@ -14,7 +14,7 @@ import {
 } from './ui/dialog';
 
 /**
- * Asks for the user name and password of a proxy server when a download of managed agents goes
+ * Asks for the user name and password of a proxy server when a download of the Verdictan gateway goes
  * through a proxy that asks for them. The password goes only to the desktop process. Kalkidan
  * saves it only in the secret store of the operating system, when the user selects Remember.
  */
@@ -54,7 +54,7 @@ export function ProxySignInDialog({ api }: { api: API }) {
               <DialogTitle>Sign in to the proxy server</DialogTitle>
               <DialogDescription>
                 The proxy server {request.host}:{request.port} asks for a user name and password
-                before Kalkidan can download managed agents.
+                before Kalkidan can download the Verdictan gateway.
                 {request.realm ? ` It names "${request.realm}".` : ''}
               </DialogDescription>
             </DialogHeader>

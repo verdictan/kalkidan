@@ -188,14 +188,11 @@ export function appMenuTemplate({
         { label: 'Back', accelerator: 'CmdOrCtrl+[', click: command('back') },
         { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: command('forward') },
         separator,
-        // These open a page of the current project. Without a project, the renderer does nothing.
+        // The three views of the current project. Without a project, the renderer does nothing.
+        // Chats are in the sidebar tree, so there is no Chats page.
         { label: 'Overview', accelerator: 'CmdOrCtrl+1', click: command('go-overview') },
         { label: 'Tasks', accelerator: 'CmdOrCtrl+2', click: command('go-tasks') },
-        { label: 'Chats', accelerator: 'CmdOrCtrl+3', click: command('go-chats') },
-        { label: 'Knowledge', accelerator: 'CmdOrCtrl+4', click: command('go-knowledge') },
-        separator,
-        { label: 'All chats', accelerator: 'CmdOrCtrl+Shift+L', click: command('all-sessions') },
-        { label: 'Computers', click: command('go-computers') },
+        { label: 'Knowledge', accelerator: 'CmdOrCtrl+3', click: command('go-knowledge') },
       ],
     },
     {

@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pullRequestBody, pullRequestLabel, pullRequestNumber } from '../src/lib/pull-request';
+import {
+  pullRequestBody,
+  pullRequestLabel,
+  pullRequestNumber,
+  pullRequestTitle,
+} from '../src/lib/pull-request';
 import { agentErrorMessage } from '../src/lib/agent-errors';
 
 test('a pull request for an issue task closes the issue', () => {
@@ -11,7 +16,25 @@ test('a pull request for an issue task closes the issue', () => {
   });
   assert.match(body, /^Closes acme\/web#12$/m);
   assert.match(body, /Task: \[Login fails\]\(https:\/\/x\/1\)/);
-  assert.match(body, /Kalkidan chat “Fix login”/);
+  // No boilerplate line (CH-20).
+  assert.doesNotMatch(body, /Kalkidan chat/);
+});
+
+test('the pull request body drops a leading "Done."', () => {
+  const body = pullRequestBody({ title: 'A', sessionTitle: 'A', summary: 'Done. Tests pass.' });
+  assert.equal(body, 'Tests pass.');
+});
+
+test('the pull request title is short', () => {
+  assert.equal(pullRequestTitle('Add sign-in integration tests'), 'Add sign-in integration tests');
+  assert.equal(
+    pullRequestTitle(
+      'Add integration tests for the sign-in flow in atlas-web. Cover expired sessions.',
+    ),
+    'Add integration tests for the sign-in flow in atlas-web',
+  );
+  assert.equal(pullRequestTitle('New Codex chat'), '');
+  assert.ok(pullRequestTitle('word '.repeat(40)).length <= 72);
 });
 
 test('a pull request for a draft task has no closing keyword', () => {
@@ -35,19 +58,35 @@ test('pull request number and label', () => {
   );
 });
 
-test('desktop codes become plain words with a Settings action', () => {
+test('desktop codes become plain words with one fix of the round 11 model', () => {
+  // A gateway runtime failure: Try again repairs the runtime, then sends again.
   const error = agentErrorMessage(
     new Error("Error invoking remote method 'chat-create': Error: desktop.runtime_missing"),
   );
   assert.equal(error.code, 'desktop.runtime_missing');
-  assert.doesNotMatch(error.message, /desktop\./);
-  assert.equal(error.action?.kind, 'settings');
-  assert.equal(error.action?.section, 'account');
-  // A missing region is a first setup step, like a missing runtime.
+  assert.doesNotMatch(error.message, /desktop\.|managed agent/i);
+  assert.equal(error.action?.kind, 'gateway-retry');
+  assert.equal(error.action?.label, 'Try again');
+  // A missing region needs the sign-in.
   assert.equal(
-    agentErrorMessage('Select the region. [desktop.region_required]').action?.label,
-    'Set up managed agents',
+    agentErrorMessage('Select the region. [desktop.region_required]').action?.kind,
+    'sign-in',
   );
   assert.equal(agentErrorMessage('session_busy', 'codex').action?.kind, 'retry');
-  assert.equal(agentErrorMessage('spawn codex ENOENT', 'codex').action?.kind, 'install');
+  // A missing agent CLI links to its install guide and Settings › Tools.
+  const missing = agentErrorMessage('spawn codex ENOENT', 'codex');
+  assert.match(missing.message, /^Codex is not installed\./);
+  assert.deepEqual(missing.action, {
+    label: 'Install guide',
+    section: 'tools',
+    kind: 'install',
+    url: 'https://github.com/openai/codex',
+  });
+  assert.equal(
+    agentErrorMessage('Not found. [desktop.agent_not_found]', 'claude').message,
+    'Claude Code is not installed. Install it, then restart Kalkidan to find it.',
+  );
+  // The browser preview runs no agent and offers no setup.
+  const preview = agentErrorMessage('The browser preview cannot run agents. Open the app.');
+  assert.equal(preview.action, undefined);
 });

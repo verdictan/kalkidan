@@ -121,14 +121,10 @@ for (const mac of [true, false])
       ['File', 'New task', 'new-task'],
       ['Go', 'Overview', 'go-overview'],
       ['Go', 'Tasks', 'go-tasks'],
-      ['Go', 'Chats', 'go-chats'],
       ['Go', 'Knowledge', 'go-knowledge'],
-      ['Go', 'All chats', 'all-sessions'],
-      ['Go', 'Computers', 'go-computers'],
       ['Chat', 'New chat', 'session-new'],
       ['Chat', 'Terminal', 'session-terminal'],
       ['Chat', 'Changes', 'session-changes'],
-      ['Chat', 'Open side chat', 'session-side-chat'],
       ['Chat', 'Rename…', 'session-rename'],
       ['Chat', 'Pin', 'session-pin'],
       ['Chat', 'Link task…', 'link-task'],
@@ -176,7 +172,7 @@ for (const mac of [true, false])
     const shown = all.map((entry) =>
       String(entry.accelerator || '').replace('Shift+CmdOrCtrl', 'CmdOrCtrl+Shift'),
     );
-    for (const key of ['CmdOrCtrl+N', 'CmdOrCtrl+Shift+N', 'CmdOrCtrl+4', 'CmdOrCtrl+Shift+K'])
+    for (const key of ['CmdOrCtrl+N', 'CmdOrCtrl+Shift+N', 'CmdOrCtrl+3', 'CmdOrCtrl+Shift+K'])
       assert.equal(shown.filter((value) => value === key).length, 1, key);
     // The renderer uses these keys. Menu items must not take them.
     const renderer = [
@@ -189,22 +185,26 @@ for (const mac of [true, false])
       'CmdOrCtrl+Shift+P',
       'CmdOrCtrl+Shift+S',
       'CmdOrCtrl+Shift+E',
+      // New page in Knowledge.
+      'CmdOrCtrl+Alt+N',
+      'Cmd+Alt+N',
+      'Ctrl+Alt+N',
     ];
     for (const key of renderer) assert.ok(!keys.includes(key), key);
     const go = submenu(menu(mac), 'Go');
     assert.deepEqual(
-      ['Overview', 'Tasks', 'Chats', 'Knowledge', 'All chats', 'Computers'].map(
-        (label) => item(go, label).accelerator,
-      ),
-      ['CmdOrCtrl+1', 'CmdOrCtrl+2', 'CmdOrCtrl+3', 'CmdOrCtrl+4', 'CmdOrCtrl+Shift+L', undefined],
+      ['Overview', 'Tasks', 'Knowledge'].map((label) => item(go, label).accelerator),
+      ['CmdOrCtrl+1', 'CmdOrCtrl+2', 'CmdOrCtrl+3'],
     );
+    // There are no Chats, All chats and Computers pages (round 11).
+    for (const label of ['Chats', 'All chats', 'Computers'])
+      assert.ok(!go.some((entry) => entry.label === label), label);
     // Knowledge holds Docs, Memory and Insights, so they have no menu items of their own.
     for (const label of ['Docs', 'Memory', 'Insights', 'Settings…', 'Settings'])
       assert.ok(!labels(menu(mac)).includes(label), label);
     const settings = mac ? submenu(menu(mac), 'Kalkidan') : file;
     assert.equal(item(settings, 'Preferences…').accelerator, mac ? 'Cmd+,' : 'Ctrl+,');
     assert.equal(item(file, 'New task').accelerator, 'CmdOrCtrl+Shift+K');
-    assert.equal(item(go, 'Chats').click !== undefined, true);
     // Sign in shows once: in the app menu on macOS, in File elsewhere.
     const where = mac ? submenu(menu(mac), 'Kalkidan') : file;
     assert.ok(item(where, 'Sign in to Verdictan…'));
@@ -256,8 +256,8 @@ for (const mac of [true, false])
       ),
     ]);
     assert.deepEqual(actions, expected);
+    // No side chat (round 11). Read only shows when the open chat reports its access.
     assert.deepEqual(actions, [
-      'Open side chat',
       'Open in new window',
       '---',
       'Rename…',
@@ -290,7 +290,7 @@ for (const mac of [true, false])
     };
     assert.equal(shortcut('Rename…'), mac ? 'Cmd+Alt+R' : 'Ctrl+Shift+E');
     assert.equal(shortcut('Pin'), mac ? 'Cmd+Alt+P' : 'Ctrl+Shift+P');
-    assert.equal(shortcut('Open side chat'), mac ? 'Cmd+Alt+S' : 'Ctrl+Shift+S');
+    assert.ok(!items.some((entry) => entry.label === 'Open side chat'));
     assert.equal(shortcut('Archive'), mac ? 'Cmd+Shift+A' : 'Ctrl+Shift+A');
   });
 

@@ -21,6 +21,7 @@ import {
   managedSetupTargets,
 } from '../src/domain/verdictan';
 import { agentErrorMessage } from '../src/lib/agent-errors';
+import { toolInstallUrls } from '../src/domain/desktop';
 import { installedAgentVersion } from '../electron/agents/installed-version';
 import { agentInstallations } from '../electron/agent-installations';
 import { DesktopProtocolError } from '../electron/verdictan/protocol';
@@ -123,7 +124,7 @@ test('each version check has one code, one label, and a specific message', () =>
   );
 });
 
-test('a refused version uses the managed-only format and links to Settings › Agents', () => {
+test('a refused version uses the gateway notice format and links to the install guide', () => {
   for (const [code, text] of [
     ['desktop.claude_code_version_unsupported', /^Kalkidan needs Claude Code 2\.1\.300 or later\./],
     ['desktop.codex_version_unsupported', /^Kalkidan needs Codex 0\.160\.0 or later\./],
@@ -142,17 +143,17 @@ test('a refused version uses the managed-only format and links to Settings › A
     assert.match(block.message.slice(managedOnlyNotice.length + 1), text);
     assert.doesNotMatch(block.message, /desktop\./);
     assert.deepEqual(managedSetupTargets[block.step], {
-      section: 'agents',
-      anchor: 'settings-agents',
-      label: 'Open agent settings',
+      section: 'tools',
+      anchor: 'settings-tools',
+      label: 'Open Tools settings',
     });
-    // The same code in a chat error opens the row of that agent on the Computers page.
+    // The same code in a chat error links to the install guide of that agent.
     const agent = code.includes('claude') ? 'claude' : 'codex';
     assert.deepEqual(agentErrorMessage(error).action, {
-      label: 'Open agent settings',
-      section: 'agents',
-      anchor: `agent-program-local-${agent}`,
-      kind: 'settings',
+      label: 'Install guide',
+      section: 'tools',
+      kind: 'install',
+      url: toolInstallUrls[agent],
     });
   }
   // A message with no exact version pin.

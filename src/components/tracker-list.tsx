@@ -8,15 +8,19 @@ import {
   PanelRight,
   Play,
 } from 'lucide-react';
-import type { MouseEvent, KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type KeyboardEvent } from 'react';
 import type { Agent, TrackerBoard, TrackerItem, Session } from '../types';
+import type { IdentityColor } from '../domain/identity';
 import { agentLabel } from '../config/agents';
 import {
   ActivityDot,
   activityKey,
   strongestActivity,
+  type SessionActivity,
   type SessionActivityState,
 } from './activity-dot';
+import { IdentityMark, IdentityToken } from './ui/identity-mark';
+import { StatusGlyph } from './ui/status-glyph';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
@@ -82,10 +86,29 @@ export interface TaskSelection {
   clear: () => void;
 }
 
+/**
+ * The live activity of an open chat, with the words of the current step when the chat gives
+ * them (`detail`, "editing overview.tsx"). An approval has its own title ("Run npm test?").
+ */
+export type LiveActivity = SessionActivity & { detail?: string };
+
+/** The identity colors of the repos and the chats of the project. */
+export interface TaskIdentity {
+  /** The color of a code folder, by its name ("api-service"). */
+  repoColor: (name: string) => IdentityColor | undefined;
+  /** The color of a chat. */
+  sessionColor: (session: Session) => IdentityColor | undefined;
+}
+
 /** Shared props of the board and the list for the chats of a task and the quick start. */
 export interface TaskWorkProps {
   /** The background state of open chats, by activityKey(agent, id). */
   activity?: Record<string, SessionActivityState>;
+  /** The live activity of open chats, by activityKey(agent, id): the words for the card line. */
+  live?: Record<string, LiveActivity>;
+  identity?: TaskIdentity;
+  /** Allows the pending approval of a chat, from the card. */
+  onAllow?: (session: Session) => void;
   onOpenChat?: (session: Session) => void;
   /** Starts a chat on the task. The board shows "Start" on hover and the S key starts it. */
   onStart?: (item: TrackerItem) => void;
@@ -272,52 +295,109 @@ export function TaskPullRequest({
   );
 }
 
+/** The text of a card line. It changes at most once a second, so the card does not flicker. */
+function useSteadyText(text: string) {
+  const [shown, setShown] = useState(text);
+  const last = useRef(0);
+  useEffect(() => {
+    if (text === shown) return;
+    const wait = Math.max(0, last.current + 1000 - Date.now());
+    const timer = window.setTimeout(() => {
+      last.current = Date.now();
+      setShown(text);
+    }, wait);
+    return () => window.clearTimeout(timer);
+  }, [text, shown]);
+  return shown;
+}
+
+/** The code folder of a card: the repo ring and the name. */
+export function TaskRepo({ name, identity }: { name: string; identity?: TaskIdentity }) {
+  const color = identity?.repoColor(name);
+  return color ? (
+    <IdentityToken kind="repo" color={color} name={name} className="tracker-task-repo" />
+  ) : (
+    <span className="truncate">{name}</span>
+  );
+}
+
 /**
- * The agent line of a card: "● Codex · working", "● Needs your approval" or "● Starting…".
- * It opens the chat. It shows nothing when no chat works on the task.
+ * The live line of a card (TK-A): the dot of the chat, one line of what it does, then the
+ * status glyph. "● Codex · editing overview.tsx ◌" while it works; "● Run npm test? ! Allow"
+ * while it waits for an approval. The line opens the chat. It shows nothing when no chat works
+ * on the task.
  */
-export function TaskStateLine({
+export function TaskLiveLine({
   chats,
   activity,
+  live,
+  identity,
   onOpenChat,
+  onAllow,
   starting,
   tabIndex,
 }: {
   chats: Session[];
   activity?: Record<string, SessionActivityState>;
+  live?: Record<string, LiveActivity>;
+  identity?: TaskIdentity;
   onOpenChat?: (session: Session) => void;
+  onAllow?: (session: Session) => void;
   starting?: boolean;
   tabIndex?: number;
 }) {
-  if (starting)
-    return (
-      <span className="tracker-task-state" data-state="running" role="status">
-        <ActivityDot state="running" />
-        Starting…
-      </span>
-    );
-  const state = chatsActivity(chats, activity);
-  const chat = chatWithState(chats, state, activity);
-  if (!state || !chat) return null;
-  const label = activityText(state, chat.agent);
-  const name = chat.organization?.title || chat.title;
-  return onOpenChat ? (
-    <button
-      type="button"
-      className="tracker-task-state"
-      data-state={state}
-      tabIndex={tabIndex}
-      aria-label={`${label}. Open chat: ${name}`}
-      onClick={() => onOpenChat(chat)}
-    >
-      <ActivityDot state={state} />
-      <span className="truncate">{label}</span>
-    </button>
-  ) : (
-    <span className="tracker-task-state" data-state={state}>
-      <ActivityDot state={state} />
-      <span className="truncate">{label}</span>
-    </span>
+  const state = starting ? 'running' : chatsActivity(chats, activity);
+  const chat = starting ? chats[0] : chatWithState(chats, state, activity);
+  const item = chat ? live?.[activityKey(chat.agent, chat.id)] : undefined;
+  const text = starting
+    ? 'Starting…'
+    : !state || !chat
+      ? ''
+      : state === 'running'
+        ? `${agentLabel(chat.agent)} · ${item?.detail || 'working'}`
+        : state === 'approval'
+          ? item?.approval?.title || 'Needs your approval'
+          : 'Needs your answer';
+  const shown = useSteadyText(text);
+  if (!state || !shown) return null;
+  const color = chat && identity?.sessionColor(chat);
+  const name = chat ? chat.organization?.title || chat.title : '';
+  const glyph = state === 'running' ? 'working' : 'needs-you';
+  const content = (
+    <>
+      {color && <IdentityMark kind="session" color={color} slot={false} />}
+      <span className="truncate">{shown}</span>
+      <StatusGlyph status={glyph} />
+    </>
+  );
+  return (
+    <div className="tracker-task-live" data-state={state} role={starting ? 'status' : undefined}>
+      {chat && onOpenChat && !starting ? (
+        <button
+          type="button"
+          className="tracker-task-live-open"
+          tabIndex={tabIndex}
+          aria-label={`${shown}. Open chat: ${name}`}
+          onClick={() => onOpenChat(chat)}
+        >
+          {content}
+        </button>
+      ) : (
+        <span className="tracker-task-live-open">{content}</span>
+      )}
+      {state === 'approval' && chat && onAllow && (
+        <Button
+          variant="outline"
+          size="xs"
+          className="tracker-task-allow bg-background hover:bg-background"
+          tabIndex={tabIndex}
+          aria-label={`Allow: ${shown}`}
+          onClick={() => onAllow(chat)}
+        >
+          Allow
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -339,7 +419,7 @@ export function TaskStartButton({
       <Button
         variant="outline"
         size="xs"
-        className="tracker-task-start"
+        className="tracker-task-start bg-background hover:bg-background"
         aria-label={`Start task: ${item.title}`}
         aria-keyshortcuts="S"
         tabIndex={tabIndex}
@@ -512,6 +592,7 @@ export function TrackerList({
   busy,
   onOpen,
   onStatus,
+  folderOf = taskFolderName,
   ...work
 }: {
   board: TrackerBoard;
@@ -520,13 +601,15 @@ export function TrackerList({
   busy: boolean;
   onOpen: (item: TrackerItem) => void;
   onStatus: (item: TrackerItem, status: string) => void;
+  /** The code folder name of a task. Drafts keep the repo that the user chose when adding. */
+  folderOf?: (item: TrackerItem) => string;
 } & TaskWorkProps) {
   const { selection } = work;
   const selecting = !!selection?.ids.size;
   const allSelected =
     !!selection && items.length > 0 && items.every((i) => selection.ids.has(i.id));
   const chatsOf = new Map(items.map((item) => [item.id, linkedChats(sessions, item.id)]));
-  const showRepository = items.some((item) => taskMeta(item));
+  const showRepository = items.some((item) => folderOf(item));
   const showChats = items.some((item) => chatsOf.get(item.id)?.length) || !!work.startingId;
   const options = board.statusField?.options || [];
   const columnCount = 2 + (selection ? 1 : 0) + (showRepository ? 1 : 0) + (showChats ? 1 : 0);
@@ -620,7 +703,12 @@ export function TrackerList({
                   </TableCell>
                   {showRepository && (
                     <TableCell className="max-w-0 truncate text-xs text-muted-foreground tabular-nums">
-                      {taskMeta(item)}
+                      <span className="tracker-task-meta">
+                        {folderOf(item) && (
+                          <TaskRepo name={folderOf(item)} identity={work.identity} />
+                        )}
+                        {item.number ? <span>#{item.number}</span> : null}
+                      </span>
                     </TableCell>
                   )}
                   {showChats && (

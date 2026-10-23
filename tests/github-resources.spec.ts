@@ -183,7 +183,9 @@ test('saved views render configured fields and explicit report publishing uses t
   ]);
   // A change with an unknown result shows in the Tasks header until the user checks it.
   await page.getByRole('button', { name: '1 change may not have reached GitHub. Check' }).click();
-  const record = page.getByRole('button', { name: 'Mark as checked' });
+  const record = page
+    .getByRole('dialog', { name: 'Changes to check' })
+    .getByRole('button', { name: 'Dismiss', exact: true });
   await record.click();
   await expect(record).toHaveCount(0);
   expect((await page.evaluate(() => (window as any).writes))[2]).toEqual([

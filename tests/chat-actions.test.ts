@@ -45,7 +45,8 @@ test('the actions keep the fixed groups and order', () => {
   assert.deepEqual(chatActionGroups, ['open', 'organize', 'work', 'share', 'developer', 'archive']);
   // The menu bar and the palette show all actions in their groups.
   assert.deepEqual(ids({ ...ready, open: true }, 'menu-bar'), [
-    ['open', ['open-beside', 'open-window']],
+    // No side chat (round 11).
+    ['open', ['open-window']],
     ['organize', ['rename', 'pin', 'link-task', 'notes']],
     // "Fork chat…" is the one way to copy a chat. Duplicate shows nowhere.
     ['work', ['commit', 'create-pull-request', 'fork', 'show-folder']],
@@ -84,10 +85,20 @@ test('the chat menus show their items in two levels', () => {
   // done show only when they can run.
   const all = chatActionMenu('list', ready, 'mac').flatMap((group) => group.items);
   assert.ok(!all.some((item) => ['commit', 'create-pull-request'].includes(item.id)));
+  // Commit is on the arrow of Create pull request in the Changes tab (CH-B), not in these menus.
   assert.deepEqual(ids({ ...ready, noChanges: false, canMarkDone: true })[1], [
     'work',
-    ['commit', 'mark-task-done', 'fork', 'open-in'],
+    ['mark-task-done', 'fork', 'open-in'],
   ]);
+  // The open chat has "Read only" in its menu, and "Allow file edits" when it is read only.
+  const open = { ...ready, open: true, readOnly: false };
+  assert.deepEqual(ids(open, 'header')[1], ['work', ['read-only', 'fork', 'open-in']]);
+  const label = (state: ChatActionState) =>
+    chatActionMenu('header', state, 'mac')
+      .flatMap((group) => group.items)
+      .find((item) => item.id === 'read-only')?.label;
+  assert.equal(label(open), 'Read only');
+  assert.equal(label({ ...open, readOnly: true }), 'Allow file edits');
   // No submenu has a third level.
   for (const item of all)
     for (const child of item.children || []) assert.equal(child.children, undefined);
@@ -233,7 +244,6 @@ test('shortcuts are the same in every surface', () => {
       ]),
   );
   assert.deepEqual(shortcuts, {
-    'open-beside': ['Cmd+Alt+S', 'Ctrl+Shift+S'],
     rename: ['Cmd+Alt+R', 'Ctrl+Shift+E'],
     pin: ['Cmd+Alt+P', 'Ctrl+Shift+P'],
     archive: ['Cmd+Shift+A', 'Ctrl+Shift+A'],

@@ -291,8 +291,12 @@ export class GitHubProjectContent {
         input = { subjectId: current.id, body: action.body };
       } else if (action.kind === 'close' || action.kind === 'reopen') {
         if (!current.permissions[action.kind]) throw new Error('You cannot change this state.');
+        const reason = action.kind === 'close' ? action.reason : undefined;
+        if (reason !== undefined && (reason !== 'not-planned' || current.kind !== 'Issue'))
+          throw new Error('Invalid close reason.');
         method = `${action.kind}${current.kind}`;
         input = { [current.kind === 'Issue' ? 'issueId' : 'pullRequestId']: current.id };
+        if (reason) input.stateReason = 'NOT_PLANNED';
       } else if ('login' in action) {
         if (!current.permissions.assign || !/^[a-zA-Z0-9-]{1,100}$/.test(action.login))
           throw new Error('Choose an assignable user.');

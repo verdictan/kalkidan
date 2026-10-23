@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+import { openCodeFolder } from './helpers/navigation';
 
 const tree = (page: Page) => page.getByRole('navigation', { name: 'Projects and repositories' });
 
@@ -75,6 +76,7 @@ async function withForeignChat(
     { remote, ownership },
   );
   await page.goto('/');
+  await openCodeFolder(page, 'web');
   await tree(page).getByRole('button', { name: 'Chat: Login review' }).click();
 }
 

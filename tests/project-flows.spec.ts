@@ -1,13 +1,18 @@
+import { type Page } from '@playwright/test';
+import { test, expect, newChat, openSettings, settingsDialog } from './helpers/app';
 import {
-  test,
-  expect,
-  newChat,
-  openSettings,
-  settingsDialog,
-  settingsSection,
-} from './helpers/app';
-import { openCodeFolder, openAddCodeFolders, openProjectTab } from './helpers/navigation';
+  openCodeFolder,
+  openAddCodeFolders,
+  openProjectTab,
+  openTreeChat,
+} from './helpers/navigation';
 const url = '/';
+
+/** Goes back to the page before with ⌘[ (Ctrl+[), from a place that is not a text field. */
+async function goBack(page: Page) {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('ControlOrMeta+BracketLeft');
+}
 test('single view ignores old split preferences and preserves conversation drafts while navigating', async ({
   page,
 }) => {
@@ -26,14 +31,14 @@ test('single view ignores old split preferences and preserves conversation draft
   // The project row opens the Overview with its New chat composer.
   await expect(page.getByRole('textbox', { name: 'Message for a new chat' })).toBeVisible();
   await expect(page.getByLabel('Message agent')).toBeHidden();
-  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await goBack(page);
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page
     .getByRole('navigation', { name: 'Projects and repositories' })
     .getByRole('button', { name: 'Projects', exact: true })
     .click();
   await expect(page.getByRole('region', { name: 'Projects', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  await goBack(page);
   await expect(page.getByLabel('Message agent')).toHaveValue('Preserve this draft');
   await page.setViewportSize({ width: 980, height: 680 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -209,7 +214,7 @@ for (const outcome of ['completed', 'failed', 'stopped']) {
     );
     await page.goto(url);
     await openCodeFolder(page);
-    await page.getByRole('button', { name: 'Resume Linked conversation', exact: true }).click();
+    await openTreeChat(page, 'Linked conversation');
     await page.getByLabel('Message agent').fill('Implement the feature');
     await page.getByRole('button', { name: 'Send', exact: true }).click();
     await expect(page.getByText('Response ended', { exact: true })).toBeVisible();
@@ -240,7 +245,6 @@ test('navigation collapse preserves the conversation and command K restores sear
   await page.goto(url);
   await openCodeFolder(page, 'atlas-web');
   await newChat(page);
-  await expect(page.getByText('What are we working on?', { exact: true })).toBeVisible();
   await page.getByLabel('Message agent').fill('Keep this draft while I focus');
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await expect(
@@ -262,30 +266,25 @@ test('settings shows agent and remote controls without history import', async ({
   await page.goto(url);
   // Below 1100px wide, the sidebar starts closed.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
-  // The agents and the SSH hosts are in Settings › Computers.
-  const computers = await openSettings(page, 'Computers');
-  await expect(computers.getByRole('group', { name: 'Codex', exact: true })).toBeVisible();
-  await expect(computers.getByRole('group', { name: 'Claude Code', exact: true })).toBeVisible();
-  await computers.getByRole('button', { name: 'Add SSH host', exact: true }).click();
-  await expect(computers.getByRole('textbox', { name: 'SSH target' })).toBeVisible();
-  const dialog = settingsDialog(page);
-  // Each section is a tab. No section has a history import.
-  for (const name of ['General', 'Computers', 'Account']) {
-    await settingsSection(page, name).click();
-    await expect(dialog.getByRole('tabpanel', { name, exact: true })).toBeVisible();
-    await expect(dialog.getByText('Import chat history', { exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
-  }
-  // The account connections are in Settings › Account.
-  await expect(
-    dialog
-      .getByRole('tabpanel', { name: 'Account' })
-      .getByRole('group', { name: 'GitHub and boards' }),
-  ).toBeVisible();
+  // The agents and the SSH hosts are in the Tools part of Settings.
+  const settings = await openSettings(page, 'Tools');
+  const tools = settings.getByRole('region', { name: 'Tools', exact: true });
+  const computer = tools.getByRole('list', { name: 'This Mac', exact: true });
+  await expect(computer).toContainText('Codex');
+  await expect(computer).toContainText('Claude Code');
+  // The GitHub CLI row has the GitHub account.
+  await expect(computer).toContainText('GitHub CLI');
+  await tools.getByRole('button', { name: 'Add SSH host', exact: true }).click();
+  await expect(settings.getByRole('textbox', { name: 'SSH target' })).toBeVisible();
+  // No part has a history import.
+  await expect(settings.getByText('Import chat history', { exact: true })).toHaveCount(0);
+  await expect(settings.getByRole('button', { name: 'Preview chat history' })).toHaveCount(0);
   await page.screenshot({ path: 'test-results/settings-page.png', fullPage: true });
-  // Escape closes it.
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
+  // Escape closes the SSH host form, then Settings.
+  await expect(async () => {
+    await page.keyboard.press('Escape');
+    await expect(settingsDialog(page)).toHaveCount(0, { timeout: 1000 });
+  }).toPass({ timeout: 10000 });
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
 });
 
@@ -319,24 +318,25 @@ test('project menu connects the chosen project without duplicate authorization',
     .getByRole('navigation', { name: 'Projects and repositories' })
     .getByRole('button', { name: 'Platform', exact: true })
     .click({ button: 'right' });
-  // The row menu has no board item. The project section of Settings has the board connection.
+  // The row menu has no board item. The project part of Settings has the board connection.
   await expect(
     page.getByRole('menuitem', { name: 'Connect a GitHub Projects board…', exact: true }),
   ).toHaveCount(0);
-  await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Settings…', exact: true }).click();
   const settings = settingsDialog(page);
-  await expect(settingsSection(page, 'Platform')).toHaveAttribute('aria-selected', 'true');
-  await settings
-    .getByRole('region', { name: 'Board', exact: true })
-    .getByRole('button', { name: 'Connect board…', exact: true })
-    .click();
+  const project = settings.getByRole('region', { name: 'Platform', exact: true });
+  await expect(project).toBeVisible();
+  // The board chip opens the board settings in place.
+  await project.getByRole('button', { name: 'Connect board', exact: true }).click();
+  await project.getByRole('button', { name: 'Connect board…', exact: true }).click();
   // The Connect board dialog checks the board access once.
   const connect = page.getByRole('dialog', { name: 'Connect board', exact: true });
-  await expect(connect.getByLabel('GitHub device code')).toHaveValue('ABCD-1234');
+  await expect(connect.getByLabel('GitHub device code')).toHaveText('ABCD-1234');
   expect(await page.evaluate(() => (window as any).authStarts)).toBe(1);
   await page.keyboard.press('Escape');
   await expect(connect).toHaveCount(0);
-  await settings.getByRole('button', { name: 'Close', exact: true }).click();
+  // Escape again leaves Settings.
+  await page.keyboard.press('Escape');
   await expect(settings).toHaveCount(0);
 });
 
@@ -359,9 +359,15 @@ test('task conversation returns to the filtered project board', async ({ page })
     .getByRole('radio', { name: 'Work on main', exact: true })
     .check();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: 'Start task with Codex', exact: true }).click();
+  // The task starts with the agent that is ready (Codex is not installed in the preview).
+  await page.getByRole('button', { name: /^Start task with / }).click();
   await expect(page.getByLabel('Message agent')).toHaveValue(/Review authentication/);
-  await page.getByRole('button', { name: 'Go back', exact: true }).click();
+  // The new chat puts the caret in its composer after it opens. ⌘[ in a text field does not go
+  // back, so try again until the board shows.
+  await expect(async () => {
+    if (!(await search.isVisible())) await goBack(page);
+    await expect(search).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10000 });
   await expect(search).toHaveValue('authentication');
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
   await expect(

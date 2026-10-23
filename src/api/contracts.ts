@@ -53,6 +53,8 @@ import type {
   TrackerConnection,
 } from '../domain/tracker';
 import type { DataControlAPI } from '../domain/data-policy';
+import type { CodeFilesAPI } from '../domain/code-files';
+import type { DesktopAPI } from '../domain/desktop';
 export type {
   TrackerProject,
   TrackerItem,
@@ -91,11 +93,15 @@ export interface TrackerAPI
 }
 export interface AgentAPI {
   githubCliCheck(): Promise<GitHubCliStatus>;
-  /** Checks the agent programs. No host ID means this computer. */
+  /**
+   * Checks the agent programs. No host ID means this computer.
+   * @deprecated Kalkidan does not manage agents. Use `toolStatus` or `computerTools`.
+   */
   agentInstallations(hostId?: string): Promise<AgentInstallation[]>;
   /**
    * Keeps the program that launches use for an agent on one computer, then checks again.
    * `null` returns to automatic detection. Rejects a file that does not report a version.
+   * @deprecated Kalkidan does not manage agents. Remove its UI (Programs).
    */
   chooseAgentExecutable?(
     agent: Agent,
@@ -466,7 +472,9 @@ export interface MemoryAPI {
 }
 export interface API
   extends
+    DesktopAPI,
     DataControlAPI,
+    CodeFilesAPI,
     ProjectServicesAPI,
     ParallelDispatchAPI,
     PublishAPI,

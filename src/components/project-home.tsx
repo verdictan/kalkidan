@@ -1,45 +1,21 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { FileText, GitBranch, Inbox, ListTodo } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
-import { agentInstalled } from '../lib/agent-preference';
 import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
-import { chosenModel } from '../domain/model-choice';
-import { fullTime, relativeTime } from '../lib/relative-time';
-import { useRecentItems } from '../lib/recent-items';
 import { sessionRepo } from '../lib/session-repository';
-import type { ProjectDocMetadata } from '../domain/docs';
 import type { WorkingStatus } from '../api/contracts';
-import type {
-  API,
-  Agent,
-  ModelOption,
-  Project,
-  ProjectGroup,
-  Session,
-  TrackerBoard,
-} from '../types';
-import { activityKey, useActivityState } from './activity-dot';
-import { ChatRow } from './chat-row';
+import type { API, Agent, Project, ProjectGroup, Session } from '../types';
+import type { WorkspaceIdentity } from '../hooks/use-workspace-identity';
+import { activityKey, answerApproval, useActivityState } from './activity-dot';
 import { requestNewChat, usePreferredAgent } from './new-chat-button';
 import { useNeedsYou } from './project-overview';
-import { openProjectPage } from './project-tabs';
-import {
-  AccessPill,
-  Composer,
-  FolderPill,
-  defaultAccess,
-  readAccess,
-  saveAccess,
-  setNextChatModel,
-  type ChatAccess,
-} from './composer';
-import { ModelChip, useModelChoice } from './model-chip';
+import { Composer, RepoPill } from './composer';
+import { AgentPicker } from './model-chip';
 import { Button } from './ui/button';
-import { EmptyState } from './ui/empty-state';
-import { EntityIcon } from './ui/entity-icon';
+import { Hint } from './hint';
+import { IdentityMark } from './ui/identity-mark';
+import { Row } from './ui/row';
 import { SectionHeader } from './ui/page-header';
-
-const recentLimit = 8;
 
 /** Sessions that a person can open: not archived and not an unsent draft. */
 function openSessions(sessions: Session[], repos: Project[]) {
@@ -60,52 +36,27 @@ export function lastUsedRepo(repos: Project[], sessions: Session[], preferredId?
   );
 }
 
-/** One row of "Recent" that is not a chat: a task or a doc page. It looks like a chat row. */
-function ItemRow({
-  icon,
-  title,
-  meta,
-  onOpen,
-}: {
-  icon: ReactNode;
-  title: string;
-  meta: ReactNode;
-  onOpen: () => void;
-}) {
-  return (
-    <div className="chat-row row-hover">
-      <button type="button" className="chat-row-open" title={title} onClick={onOpen}>
-        <EntityIcon>{icon}</EntityIcon>
-        <span className="chat-row-text">
-          <span className="chat-row-title">
-            <span className="truncate">{title}</span>
-          </span>
-          <span className="chat-row-meta">{meta}</span>
-        </span>
-      </button>
-    </div>
-  );
-}
-
 // The unsent text of each project Overview. It stays when the user opens another page.
 const overviewDrafts = new Map<string, string>();
 
 /**
- * The composer of the project home: the same Composer as a chat. Send starts a chat in the
- * chosen code folder with the text as the first message. The folder, access and agent·model
- * pills start with the last-used values.
+ * The composer of the project Overview: the same Composer as a chat. Send starts a chat in the
+ * chosen code folder with the text as the first message. The repo and the agent start with the
+ * last-used values. The agent picker lists only the agents that Kalkidan found.
  */
 function HomeComposer({
   api,
   group,
   repos,
   sessions,
+  identity,
   onAddFolder,
 }: {
   api: API;
   group: ProjectGroup;
   repos: Project[];
   sessions: Session[];
+  identity: WorkspaceIdentity;
   onAddFolder: () => void;
 }) {
   const preferred = usePreferredAgent();
@@ -120,33 +71,10 @@ function HomeComposer({
   }, [group.id, text]);
   const [enterToSend, setEnterToSend] = useState(readEnterToSend);
   useEffect(() => onChatPreferencesChange(() => setEnterToSend(readEnterToSend())), []);
-  // Access: the last choice in the code folder, else the choice of Settings › General, else
-  // Read only. The Overview starts chats in the main checkout, never in a branch copy.
-  const [access, setAccess] = useState<ChatAccess | null>(null);
-  const shownAccess = access || readAccess(repo?.id) || defaultAccess() || 'read';
-  // Agent and model, as in the chat composer.
-  const [models, setModels] = useState<ModelOption[]>([]);
-  const [model, setModel] = useState('');
-  useEffect(() => {
-    let live = true;
-    setModels([]);
-    setModel('');
-    Promise.resolve(api.models?.(agent))
-      .then((value) => live && setModels(value || []))
-      .catch(() => {
-        /* The chip offers the default model. */
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, agent]);
-  const choice = useModelChoice(api, agent, models, agentLabel(agent));
   function start() {
     const prompt = text.trim();
     if (!prompt) return;
     if (!repo) return onAddFolder();
-    if (access) saveAccess(repo.id, access);
-    setNextChatModel(agent, chosenModel(choice, model));
     requestNewChat({ groupId: group.id, repoId: repo.id, agent, prompt, send: true });
     setText('');
   }
@@ -163,27 +91,25 @@ function HomeComposer({
       enterToSend={enterToSend}
       controls={
         <>
-          {/* folder · access · agent, in the order of a chat. Type @ to add a file. */}
-          <FolderPill
+          <RepoPill
             label={repo?.name}
-            folders={repos}
+            color={repo ? identity.repo(repo) : undefined}
+            folders={repos.map((item) => ({
+              id: item.id,
+              name: item.name,
+              color: identity.repo(item),
+            }))}
             current={repo?.id}
-            onPick={(id) => {
-              setRepoId(id);
-              setAccess(null);
-            }}
+            onPick={(id) => setRepoId(id)}
             onAdd={onAddFolder}
           />
-          <AccessPill value={shownAccess} onChange={setAccess} />
-          <ModelChip
-            choice={choice}
-            value={model}
-            onChange={setModel}
+          <AgentPicker
+            api={api}
             agent={agent}
-            agentName={agentLabel(agent)}
+            hostId={repo?.hostId}
             onAgentChange={(value) => {
               const next = agentCatalog.find((item) => item.id === value)?.id;
-              if (next && agentInstalled(next)) setAgent(next);
+              if (next) setAgent(next);
             }}
           />
         </>
@@ -193,15 +119,16 @@ function HomeComposer({
 }
 
 /**
- * The project home (the Overview tab): one compose box that starts a chat, then what needs the
- * user, then recent chats, tasks and pages, then the code folders as one row of chips.
+ * The project Overview: one composer that starts a chat, then the chats that need the user
+ * (Allow and Deny in place), the chats that work now, and the repos as one row of chips. Other
+ * chats are in the tree and in search.
  */
 export function ProjectHomePage({
   api,
   group,
   repos,
   sessions,
-  board,
+  identity,
   onOpenSession,
   onRepo,
   onAddFolder,
@@ -211,33 +138,15 @@ export function ProjectHomePage({
   /** The code folders of this project. */
   repos: Project[];
   sessions: Session[];
-  /** The board of the project, when one is connected. */
-  board?: TrackerBoard;
+  identity: WorkspaceIdentity;
   onOpenSession: (session: Session) => void;
+  /** Shows a code folder in the tree. */
   onRepo: (repo: Project) => void;
   onAddFolder: () => void;
 }) {
   const needsYou = useNeedsYou(sessions, repos);
   const { activity } = useActivityState();
-  const stateOf = (session: Session) =>
-    activity.find(
-      (item) => activityKey(item.agent, item.id) === activityKey(session.agent, session.id),
-    )?.state;
-  const [docs, setDocs] = useState<ProjectDocMetadata[]>([]);
-  useEffect(() => {
-    let live = true;
-    if (typeof api.docsMetadata !== 'function') return;
-    Promise.resolve()
-      .then(() => api.docsMetadata(group.id))
-      .then((value) => live && setDocs(value))
-      .catch(() => {
-        /* Recent then shows the pages that the list has. */
-      });
-    return () => {
-      live = false;
-    };
-  }, [api, group.id]);
-  // The branch of each code folder, for its chip and for the access default of the composer.
+  // The branch of each code folder, for its chip.
   const [working, setWorking] = useState<Record<string, WorkingStatus>>({});
   const repoKey = repos.map((repo) => repo.id).join(',');
   useEffect(() => {
@@ -254,81 +163,20 @@ export function ProjectHomePage({
       live = false;
     };
   }, [api, repoKey]);
-  const opened = useRecentItems();
   const waitingKeys = new Set(
     needsYou.map(({ session }) => activityKey(session.agent, session.id)),
   );
-  // Recent work of every kind, newest first: chats by their last change, tasks and pages by
-  // the time the user opened them.
-  const chats = openSessions(sessions, repos)
-    .filter(({ session }) => !waitingKeys.has(activityKey(session.agent, session.id)))
-    .map(({ session, repo }) => ({
-      key: 'chat:' + activityKey(session.agent, session.id),
-      at: Date.parse(session.updatedAt || '') || 0,
-      node: (
-        <ChatRow
-          key={'chat:' + activityKey(session.agent, session.id)}
-          session={session}
-          activity={stateOf(session)}
-          folder={repos.length > 1 ? repo.name : undefined}
-          onOpen={onOpenSession}
-        />
+  const workingNow = openSessions(sessions, repos).filter(
+    ({ session }) =>
+      !waitingKeys.has(activityKey(session.agent, session.id)) &&
+      activity.some(
+        (item) =>
+          item.state === 'running' && item.agent === session.agent && item.id === session.id,
       ),
-    }));
-  const items = opened
-    .filter((item) => item.groupId === group.id && item.kind !== 'chat')
-    .flatMap((item) => {
-      const when = relativeTime(new Date(item.at).toISOString());
-      if (item.kind === 'doc') {
-        const doc = docs.find((page) => page.id === item.id);
-        if (docs.length && !doc) return [];
-        const title = doc?.title || item.title || 'Untitled';
-        return [
-          {
-            key: 'doc:' + item.id,
-            at: item.at,
-            node: (
-              <ItemRow
-                key={'doc:' + item.id}
-                icon={<FileText />}
-                title={title}
-                meta={`Page · ${when}`}
-                onOpen={() =>
-                  openProjectPage(group.id, 'knowledge', { section: 'pages', docId: item.id })
-                }
-              />
-            ),
-          },
-        ];
-      }
-      const task = board?.items.find((entry) => entry.id === item.id);
-      const status = board?.statusField?.options.find((o) => o.id === task?.statusId)?.name;
-      const title = task
-        ? `${task.number ? `#${task.number} ` : ''}${task.title}`
-        : item.title || 'Task';
-      return [
-        {
-          key: 'task:' + item.id,
-          at: item.at,
-          node: (
-            <ItemRow
-              key={'task:' + item.id}
-              icon={<ListTodo />}
-              title={title}
-              meta={['Task', status || when].join(' · ')}
-              onOpen={() =>
-                window.dispatchEvent(
-                  new CustomEvent('kalkidan-open-task', {
-                    detail: { groupId: group.id, itemId: item.id },
-                  }),
-                )
-              }
-            />
-          ),
-        },
-      ];
-    });
-  const recent = [...chats, ...items].sort((a, b) => b.at - a.at).slice(0, recentLimit);
+  );
+  const titleOf = (session: Session) => session.organization?.title || session.title;
+  const approvalOf = (session: Session) =>
+    activity.find((item) => item.agent === session.agent && item.id === session.id)?.approval;
   return (
     <div className="project-home">
       <HomeComposer
@@ -336,52 +184,63 @@ export function ProjectHomePage({
         group={group}
         repos={repos}
         sessions={sessions}
+        identity={identity}
         onAddFolder={onAddFolder}
       />
       {!!needsYou.length && (
         <section className="project-home-section" aria-label="Needs you">
-          <SectionHeader title="Needs you" count={needsYou.length} />
-          <div className="chat-list">
-            {needsYou.map(({ session, repo, reason, state, at }) => {
-              const title = session.organization?.title || session.title;
+          <SectionHeader title="Needs you" as="h2" />
+          <div className="row-list">
+            {needsYou.map(({ session, repo, reason, state }) => {
+              const title = titleOf(session);
+              const approval = state === 'approval' ? approvalOf(session) : undefined;
+              const detail = [
+                repo.name,
+                approval ? [approval.title, approval.detail].filter(Boolean).join(' ') : reason,
+              ]
+                .filter(Boolean)
+                .join(' · ');
               return (
-                <ChatRow
+                <Row
                   key={activityKey(session.agent, session.id)}
+                  size="list"
                   className="needs-you-row"
-                  time={false}
-                  session={session}
-                  activity={state}
-                  onOpen={onOpenSession}
-                  icon={
-                    <EntityIcon className="needs-you-icon">
-                      <Inbox />
-                    </EntityIcon>
-                  }
-                  meta={
-                    <>
-                      {[reason, repos.length > 1 ? repo.name : undefined]
-                        .filter(Boolean)
-                        .join(' · ')}
-                      {at && (
-                        <>
-                          {' · '}
-                          <time dateTime={at} title={fullTime(at)}>
-                            {relativeTime(at)}
-                          </time>
-                        </>
-                      )}
-                    </>
-                  }
-                  // The approval and the answer are in the chat. Review opens it there.
-                  trailing={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`Review ${title}`}
-                      onClick={() => onOpenSession(session)}
-                    >
-                      Review
-                    </Button>
+                  leading={<IdentityMark kind="session" color={identity.session(session)} />}
+                  title={title}
+                  detail={detail}
+                  onClick={() => onOpenSession(session)}
+                  aria-label={`${title}: ${reason}`}
+                  actionsVisible
+                  actions={
+                    state === 'approval' ? (
+                      <>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="needs-you-deny"
+                          aria-label={`Deny ${title}`}
+                          onClick={() => answerApproval(session, false)}
+                        >
+                          Deny
+                        </Button>
+                        <Button
+                          size="sm"
+                          aria-label={`Allow ${title}`}
+                          onClick={() => answerApproval(session, true)}
+                        >
+                          Allow
+                        </Button>
+                      </>
+                    ) : state === 'question' ? (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        aria-label={`Answer ${title}`}
+                        onClick={() => onOpenSession(session)}
+                      >
+                        Answer
+                      </Button>
+                    ) : undefined
                   }
                 />
               );
@@ -389,109 +248,59 @@ export function ProjectHomePage({
           </div>
         </section>
       )}
-      {!!recent.length && (
-        <section className="project-home-section" aria-label="Recent">
-          <SectionHeader
-            title="Recent"
-            actions={
-              <Button
-                variant="bare"
-                className="section-link"
-                onClick={() => openProjectPage(group.id, 'chats')}
-              >
-                All chats
-              </Button>
-            }
-          />
-          <div className="chat-list">{recent.map((item) => item.node)}</div>
+      {!!workingNow.length && (
+        <section className="project-home-section" aria-label="Working">
+          <SectionHeader title="Working" as="h2" />
+          <div className="row-list">
+            {workingNow.map(({ session, repo }) => (
+              <Row
+                key={activityKey(session.agent, session.id)}
+                size="list"
+                leading={<IdentityMark kind="session" color={identity.session(session)} />}
+                title={titleOf(session)}
+                detail={`${repo.name} · ${agentLabel(session.agent)}`}
+                status="working"
+                onClick={() => onOpenSession(session)}
+              />
+            ))}
+          </div>
         </section>
       )}
-      <section className="project-home-section" aria-label="Code folders">
-        <SectionHeader
-          title="Code folders"
-          count={repos.length || undefined}
-          actions={
-            <Button
-              variant="bare"
-              className="section-link"
-              aria-label="Add code folder…"
-              onClick={onAddFolder}
-            >
-              Add…
-            </Button>
-          }
-        />
-        {repos.length ? (
-          <ul className="folder-chips">
-            {repos.map((repo) => {
-              const branch = working[repo.id]?.branch;
-              return (
-                <li key={repo.id}>
-                  <button
-                    type="button"
-                    className="folder-chip"
-                    title={repo.path}
-                    aria-label={branch ? `${repo.name}, branch ${branch}` : repo.name}
-                    onClick={() => onRepo(repo)}
-                  >
-                    <GitBranch aria-hidden="true" />
-                    <span className="folder-chip-name">{repo.name}</span>
-                    {branch && <span className="folder-chip-branch">{branch}</span>}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <EmptyState compact title="No code folders yet." />
-        )}
+      <section className="project-home-section" aria-label="Repos">
+        <SectionHeader title="Repos" as="h2" />
+        <ul className="folder-chips">
+          {repos.map((repo) => {
+            const branch = working[repo.id]?.branch;
+            return (
+              <li key={repo.id}>
+                <button
+                  type="button"
+                  className="folder-chip"
+                  title={repo.path}
+                  aria-label={branch ? `${repo.name}, branch ${branch}` : repo.name}
+                  onClick={() => onRepo(repo)}
+                >
+                  <IdentityMark kind="repo" color={identity.repo(repo)} slot={false} />
+                  <span className="folder-chip-name">{repo.name}</span>
+                  {branch && <span className="folder-chip-branch">{branch}</span>}
+                </button>
+              </li>
+            );
+          })}
+          <li>
+            <Hint label="Add repo">
+              <button
+                type="button"
+                className="folder-chip folder-chip-add"
+                aria-label="Add repo…"
+                onClick={onAddFolder}
+              >
+                <Plus aria-hidden="true" />
+              </button>
+            </Hint>
+          </li>
+        </ul>
       </section>
     </div>
-  );
-}
-
-/**
- * The older entry point of the project home. The Tasks page used it for its Overview. It now
- * shows the same home as the Overview tab.
- */
-export function ProjectHome({
-  api,
-  group,
-  repos,
-  sessions,
-  board,
-  onRepo,
-  onOpenSession,
-  onAddFolder,
-}: {
-  api: API;
-  group: ProjectGroup;
-  repos: Project[];
-  sessions: Session[];
-  board?: TrackerBoard | null;
-  onRepo: (repo: Project) => void;
-  onOpenSession?: (session: Session) => void;
-  onAddFolder: () => void;
-  [legacy: string]: unknown;
-}) {
-  return (
-    <ProjectHomePage
-      api={api}
-      group={group}
-      repos={repos}
-      sessions={sessions}
-      board={board || undefined}
-      onRepo={onRepo}
-      onOpenSession={
-        onOpenSession ||
-        ((session) =>
-          window.dispatchEvent(
-            new CustomEvent('kalkidan-open-session', {
-              detail: { agent: session.agent, id: session.id },
-            }),
-          ))
-      }
-      onAddFolder={onAddFolder}
-    />
   );
 }

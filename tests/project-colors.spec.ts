@@ -1,26 +1,30 @@
-import { test, expect, settingsDialog, settingsSection } from './helpers/app';
-test('project settings set matching project folder colors and reset them', async ({ page }) => {
+import { test, expect, settingsDialog } from './helpers/app';
+test('project settings set the project color in the tree and reset it', async ({ page }) => {
   await page.setViewportSize({ width: 1276, height: 988 });
   await page.goto('/');
   const project = page.locator('.project-tree').getByRole('button', { name: 'Atlas', exact: true });
-  // The color is in Settings, in the section of the project.
+  // The color is in Settings, in the part of the project.
   await project.click({ button: 'right' });
-  await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Settings…', exact: true }).click();
   const settings = settingsDialog(page);
-  await expect(settingsSection(page, 'Atlas')).toHaveAttribute('aria-selected', 'true');
-  const colors = settings.getByRole('group', { name: 'Color', exact: true });
-  for (const name of ['Default', 'Red', 'Yellow', 'Blue', 'Green', 'Indigo', 'Violet'])
-    await expect(colors.getByRole('button', { name: `${name} folder`, exact: true })).toBeVisible();
-  const violet = colors.getByRole('button', { name: 'Violet folder', exact: true });
+  const part = settings.getByRole('region', { name: 'Atlas', exact: true });
+  await expect(part.getByRole('heading', { name: 'Atlas', exact: true })).toBeVisible();
+  const colors = part.getByRole('radiogroup', { name: 'Color of Atlas', exact: true });
+  for (const name of ['Blue', 'Indigo', 'Violet', 'Plum', 'Pink', 'Cyan', 'Teal', 'Slate'])
+    await expect(colors.getByRole('radio', { name, exact: true })).toBeVisible();
+  // The mark of the project row in the tree takes the project color.
+  const mark = page.locator('.tree-row[data-kind="project"]').first().locator('.identity-mark');
+  const violet = colors.getByRole('radio', { name: 'Violet', exact: true });
   await violet.click();
-  await expect(violet).toHaveAttribute('aria-pressed', 'true');
-  // The sidebar project row shows a chevron, not a folder. The folder icon of the project in
-  // the Settings sections takes the project color.
-  const icon = settingsSection(page, 'Atlas').locator('svg').first();
-  await expect(icon).toHaveCSS('color', 'rgb(147, 51, 234)');
-  await colors.getByRole('button', { name: 'Default folder', exact: true }).click();
-  await expect(violet).toHaveAttribute('aria-pressed', 'false');
-  await expect(icon).not.toHaveCSS('color', 'rgb(147, 51, 234)');
+  await expect(violet).toBeChecked();
+  await expect(mark).toHaveAttribute('style', /--id-violet/);
+  // "Automatic color" in the project actions removes the chosen color. The demo chose Indigo
+  // for Atlas, so the automatic color can differ from the first color.
+  await part.getByRole('button', { name: 'Actions for Atlas', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Automatic color', exact: true }).click();
+  await expect(violet).not.toBeChecked();
+  await expect(mark).not.toHaveAttribute('style', /--id-violet/);
+  // Escape leaves the Settings page.
   await page.keyboard.press('Escape');
   await expect(settings).toHaveCount(0);
   await page.screenshot({ path: 'test-results/project-overview-spacing.png' });

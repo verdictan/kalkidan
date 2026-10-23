@@ -109,7 +109,7 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
     <div
       className={cn(
         // Above the dialogs and menus, so a toast with Undo stays usable while a dialog shows.
-        'pointer-events-none fixed right-5 bottom-[calc(1.25rem+var(--toast-offset,0px))] z-[var(--z-toast)] flex w-[min(420px,calc(100vw-2.5rem))] flex-col items-end gap-2',
+        'pointer-events-none fixed right-4 bottom-[calc(1rem+var(--toast-offset,0px))] z-[var(--z-toast)] flex w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2',
         className,
       )}
     >
@@ -130,8 +130,8 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
           onFocus={() => pauseTimer(item.id)}
           onBlur={() => startTimer(item.id)}
           className={cn(
-            // One dark toast: 40px, radius 10, 12px text, the actions in bold white.
-            'pointer-events-auto flex max-w-full min-h-10 items-center gap-1 rounded-lg bg-foreground py-1.5 pr-2 pl-3.5 text-xs text-background shadow-[var(--shadow-toast)]',
+            // One dark toast: 40px, radius 12, padding 0 8 0 16, 13/20 text, actions 13/20 500.
+            'pointer-events-auto flex max-w-full min-h-10 items-center gap-1 rounded-lg bg-foreground py-1 pr-2 pl-4 text-sm text-background shadow-[var(--shadow-toast)]',
             'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:duration-[var(--motion-base)]',
           )}
         >
@@ -147,7 +147,7 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
               key={action.label}
               size="sm"
               variant="ghost"
-              className="px-2 text-xs font-semibold text-background hover:bg-background/10 hover:text-background"
+              className="px-2 text-sm font-medium text-background hover:bg-background/10 hover:text-background"
               onClick={() => {
                 action.onClick();
                 close(item.id);

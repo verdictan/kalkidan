@@ -127,14 +127,15 @@ test('the agent list says signed in, signed out, or nothing when Kalkidan cannot
   );
 });
 
-test('a chat that cannot start for the agent sign-in says why and links to the agent row', () => {
+test('a chat that cannot start for the agent sign-in says why and links to Settings › Tools', () => {
   const login = managedLaunchError(
     { message: 'x', code: 'desktop.codex_subscription_login_required' },
     { agent: 'codex' },
   );
   assert.match(login.message, /codex login/);
-  assert.equal(login.action?.label, 'Sign in to the agent');
-  assert.equal(login.action?.anchor, 'agent-program-local-codex');
+  // The Tools part of Settings shows the sign-in state of the agent CLI.
+  assert.equal(login.action?.label, 'Open Tools settings');
+  assert.equal(login.action?.section, 'tools');
   const catalog = managedLaunchError({
     message: 'x',
     code: 'desktop.codex_subscription_catalog_unavailable',

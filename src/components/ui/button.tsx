@@ -12,27 +12,33 @@ const buttonVariants = cva(
         default:
           'bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-        // White with a hairline divider border and no shadow.
-        outline: 'border bg-background hover:bg-[var(--surface-hover)]',
-        // The trigger of a destructive action in a Danger zone. Filled red is only for the
-        // button inside the confirmation.
+        // SY-B has three kinds: primary (brown), secondary (the grey fill) and text. Secondary
+        // has no border. On a grey surface, add `bg-background` to make it white.
+        secondary:
+          'bg-[var(--fill)] text-foreground hover:bg-[var(--fill-strong)] aria-pressed:bg-[var(--fill-strong)]',
+        // The old outline kind is the secondary kind now.
+        outline:
+          'bg-[var(--fill)] text-foreground hover:bg-[var(--fill-strong)] aria-pressed:bg-[var(--fill-strong)]',
+        // The trigger of a destructive action: a secondary button with red text. Filled red is
+        // only for the button inside the confirmation.
         'destructive-outline':
-          'border bg-background text-destructive hover:bg-destructive/10 hover:text-destructive',
-        // Quiet: muted text and icons, the foreground on hover.
-        ghost: 'text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground',
+          'bg-[var(--fill)] text-destructive hover:bg-destructive/10 hover:text-destructive',
+        // Text: muted text and icons, the grey fill and the foreground on hover.
+        ghost: 'text-muted-foreground hover:bg-[var(--fill)] hover:text-foreground',
         // The one link style. At the default size it is inline text: no height or padding.
-        link: 'text-link underline-offset-2 hover:underline',
-        // Small pill for composer controls, attachments and inline links: 28px, 12px text.
-        chip: "h-7 rounded-full px-2.5 text-xs font-medium text-muted-foreground hover:bg-[var(--surface-hover)] hover:text-foreground has-[>svg]:px-2.5 [&_svg:not([class*='size-'])]:size-3.5",
+        link: 'text-link underline decoration-[var(--border-strong)] underline-offset-[3px] hover:decoration-current',
+        // Chip for composer settings, repos and attachments: 28px, radius 8, padding 8, a 14px
+        // icon or an identity mark 6px from the label.
+        chip: "h-7 rounded-sm px-2 text-sm font-normal text-muted-foreground hover:bg-[var(--fill)] hover:text-foreground has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3.5",
         // Text that acts as a button: no padding, height, background or centering.
         bare: 'h-auto justify-start p-0 hover:bg-transparent has-[>svg]:px-0',
       },
       size: {
         // Control heights: lg 36 (first-run calls to action), default 32 (forms and dialog
-        // footers), sm 28 (toolbars, title bar, rows and inline actions), xs 24. Radius 6.
+        // footers), sm 28 (toolbars, title bar, rows and inline actions), xs 24. Radius 8.
         default: 'h-8 px-3 has-[>svg]:px-2.5',
         xs: "h-6 gap-1 rounded-sm px-2 text-xs has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 gap-1.5 px-2.5 has-[>svg]:px-2 [&_svg:not([class*='size-'])]:size-3.5",
+        sm: "h-7 gap-1.5 px-3 has-[>svg]:px-2.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: 'h-9 rounded-md px-4 has-[>svg]:px-3',
         icon: 'size-8',
         'icon-xs': "size-6 rounded-sm [&_svg:not([class*='size-'])]:size-3.5",
@@ -51,8 +57,8 @@ const buttonVariants = cva(
         class:
           'h-auto gap-1 rounded-xs p-0 align-baseline [font-size:inherit] [font-weight:inherit] [line-height:inherit] has-[>svg]:px-0',
       },
-      // A chip is always a 28px pill, at every size.
-      { variant: 'chip', class: 'h-7 rounded-full px-2.5 has-[>svg]:px-2.5' },
+      // A chip is always 28px with radius 8, at every size.
+      { variant: 'chip', class: 'h-7 rounded-sm px-2 has-[>svg]:px-2' },
     ],
     defaultVariants: {
       variant: 'default',

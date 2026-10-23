@@ -401,20 +401,34 @@ try {
   );
   await page.evaluate(() => window.workspace.browserClose());
   // Exercise the actual dock and native view geometry together, not only bridge calls.
-  // Tools open from the "Tools" group in the title bar. The selected tool hides the tools.
-  const toolButton = (name) =>
+  // The Tools button in the chat header opens the one tool pane. Its tabs are Changes, Code,
+  // Terminal and Browser. "Close tools" hides the pane.
+  const toolTab = (name) =>
     page
-      .getByRole('group', { name: 'Tools', exact: true })
-      .getByRole('button', { name, exact: true });
-  const openTool = (name) => toolButton(name).click();
-  // This test checks the workspace, not the first-run Welcome screen.
+      .getByRole('tablist', { name: 'Tools', exact: true })
+      .getByRole('tab', { name, exact: true });
+  const openTool = async (name) => {
+    if (!(await toolTab(name).isVisible()))
+      await page
+        .getByRole('group', { name: 'Tools', exact: true })
+        .getByRole('button', { name: 'Tools', exact: true })
+        .click();
+    await toolTab(name).click();
+  };
+  // This test checks the workspace, not the first-run tools check.
   await page.evaluate(() => window.workspace.setWelcomeDone());
   await page.reload();
-  // The sidebar shows projects and chats only. Open the code folder from the project overview.
-  await page.locator('.project-tree .project-select').first().click();
-  await page.locator('.project-home-section .folder-chip').first().click();
-  // "New chat" starts a chat with the default agent, the first installed agent.
-  await page.getByRole('button', { name: 'New chat', exact: true }).first().click();
+  // The sidebar tree shows projects, repos and chats. Expand the project, then start a chat in
+  // the repo from its right-click menu.
+  const project = page.locator('.project-tree .tree-row[data-kind="project"]').first();
+  await project.locator('.tree-row-button').click();
+  const toggle = project.locator('.tree-toggle');
+  if (/^Expand /.test((await toggle.getAttribute('aria-label')) || '')) await toggle.click();
+  await page
+    .locator('.project-tree .tree-row[data-kind="repo"] .tree-row-button')
+    .first()
+    .click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'New chat here', exact: true }).click();
   await openTool('Browser');
   await page.getByLabel('Preview URL').fill(previewUrl);
   await page.getByRole('button', { name: 'Open preview', exact: true }).click();
@@ -442,7 +456,7 @@ try {
   await page.locator('.xterm-helper-textarea').fill("printf 'dock-%s' works");
   await page.locator('.xterm-helper-textarea').press('Enter');
   await expect(page.getByLabel('Interactive terminal')).toContainText('dock-works');
-  await toolButton('Terminal').click();
+  await page.getByRole('button', { name: 'Close tools', exact: true }).click();
 
   await assert.rejects(
     page.evaluate((id) => window.workspace.moveRepo(id, null), id),
@@ -498,7 +512,9 @@ try {
   await page.evaluate((s) => window.workspace.sessionAction(s, 'window'), savedSession);
   const second = await newWindow;
   await second.waitForFunction(() => !!window.workspace);
-  await expect(second.locator('.conversation-toolbar-title')).toContainText('Organized session');
+  await expect(second.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(
+    'Organized session',
+  );
   assert.equal((await second.evaluate(() => window.workspace.snapshot())).sessions.length, 1);
   await second.close();
   assert.equal((await page.evaluate(() => window.workspace.snapshot())).sessions.length, 1);
@@ -537,5 +553,6 @@ try {
 } finally {
   previewServer?.close();
   await app?.close();
-  await rm(root, { recursive: true, force: true });
+  // The app can still write a file while it quits. Try the removal again for a short time.
+  await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
 }

@@ -23,7 +23,8 @@ test('sidebar resizes, clamps, persists, and restores after collapse', async ({ 
   await page.keyboard.press('ArrowRight');
   await expect(divider).toHaveAttribute('aria-valuenow', '460');
   expect((await panel.boundingBox())!.width).toBe(460);
-  expect((await page.locator('.topbar-brand').boundingBox())!.width).toBe(460);
+  // The top bar of the sidebar keeps its width (less the 1px divider line).
+  expect((await page.locator('.sidebar-top').boundingBox())!.width).toBeGreaterThanOrEqual(459);
   await page.getByRole('button', { name: 'Toggle sidebar' }).click();
   await expect(divider).toHaveCount(0);
   await page.getByRole('button', { name: 'Toggle sidebar' }).click();

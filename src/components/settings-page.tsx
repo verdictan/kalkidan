@@ -1,42 +1,45 @@
-import type { API } from '../types';
-import type { SettingsTab } from '../domain/settings-route';
-import { SettingsDialog } from './settings-dialog';
+import { SettingsBody, useCloseOnEscape, type SettingsBodyProps } from './settings-dialog';
 
-export { SettingsDialog } from './settings-dialog';
+export { SettingsDialog, SettingsBody } from './settings-dialog';
 
 /** A request to move the focus in Settings. A new `request` moves it again. */
 export interface SettingsFocus {
-  /** The element ID. Empty opens the section at the top. */
+  /** The element ID. Empty opens the part at the top. */
   id: string;
   request: number;
 }
 
 /**
- * @deprecated Settings is now a dialog. Mount `SettingsDialog` from './settings-dialog'.
- * This wrapper shows the dialog for the older Settings route. Closing it goes back.
+ * The one Settings page (⌘,). The shell shows it in the main column, under its 48px
+ * "Settings" header. `section` and `anchor` move to a part: 'account', 'tools', 'preferences'
+ * or 'project:<id>' (older names work too). Escape calls `onClose`.
  */
 export function SettingsPage({
-  api,
   tab,
   focus,
-  onRefresh,
-}: {
-  api: API;
-  tab: SettingsTab;
+  section,
+  anchor,
+  onClose,
+  ...props
+}: Omit<SettingsBodyProps, 'request'> & {
+  /** @deprecated Use `section`. */
+  tab?: SettingsBodyProps['section'];
+  /** @deprecated Use `anchor`. */
   focus?: SettingsFocus;
-  onTab?: (tab: SettingsTab) => void;
-  onNavigate?: (tab: SettingsTab, anchor?: string) => void;
-  onRefresh?: () => Promise<void>;
+  /** Leaves the page, for example back to the page before. */
+  onClose?: () => void;
+  onTab?: (tab: string) => void;
+  onNavigate?: (tab: string, anchor?: string) => void;
 }) {
+  useCloseOnEscape(() => onClose?.());
   return (
-    <SettingsDialog
-      key={focus?.request}
-      api={api}
-      open
-      section={tab}
-      anchor={focus?.id || undefined}
-      onRefresh={onRefresh}
-      onOpenChange={(open) => !open && window.history.back()}
-    />
+    <div className="st-scroll st-embedded">
+      <SettingsBody
+        {...props}
+        section={section ?? tab}
+        anchor={anchor ?? (focus?.id || undefined)}
+        request={focus?.request}
+      />
+    </div>
   );
 }

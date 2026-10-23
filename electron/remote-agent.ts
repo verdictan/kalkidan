@@ -5,6 +5,14 @@ import { RemoteAccountClient } from './verdictan/remote-broker';
 import { DesktopProtocolError } from './verdictan/protocol';
 import { listDirectory } from './storage/directory-list';
 import { listMentionFiles, readMentionFile } from './projects/mention-files';
+import {
+  codeFileChanges,
+  codeFileRevision,
+  listCodeFiles,
+  readCodeFile,
+  searchCode,
+  writeCodeFile,
+} from './code-files';
 import { createVerdictanServices } from './verdictan/service';
 import { hostCheckMethod } from './verdictan/remote-check';
 import { isVerdictanRegion } from './verdictan/region';
@@ -58,6 +66,7 @@ import { CommandTerminal, repositoryDiff } from './conversation-tools';
 import { modelOptions } from './models';
 import { executable } from './chat';
 import { agentInstallations, chooseAgentExecutable } from './agent-installations';
+import { localToolStatus } from './local-tools';
 import {
   gitCommit,
   gitPullRequest,
@@ -352,6 +361,9 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       };
     case 'agent-installations':
       return agentInstallations();
+    case 'tool-status':
+      // Claude Code, Codex and GitHub CLI on this host. Kalkidan only detects them.
+      return localToolStatus();
     case 'agent-executable-choose':
       // The choice stays in ~/.kalkidan on this host. Launches on this host use it.
       return chooseAgentExecutable(a, b);
@@ -381,6 +393,18 @@ async function dispatch(method: string, args: any[]): Promise<any> {
       return listMentionFiles(await folder(a));
     case 'mention-file-read':
       return readMentionFile(await folder(a), b);
+    case 'code-files':
+      return listCodeFiles(await folder(a));
+    case 'code-file-read':
+      return readCodeFile(await folder(a), b);
+    case 'code-file-write':
+      return writeCodeFile(await folder(a), b, c, d);
+    case 'code-file-revision':
+      return codeFileRevision(await folder(a), b);
+    case 'code-file-changes':
+      return codeFileChanges(await folder(a), b);
+    case 'code-search':
+      return searchCode(await folder(a), b);
     case 'folders': {
       const listing = await listDirectory(a || '~');
       return {

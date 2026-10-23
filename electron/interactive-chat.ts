@@ -16,6 +16,7 @@ import { DesktopProtocolError } from './verdictan/protocol';
 import { managedLaunchBlock } from '../src/domain/verdictan';
 import { journal } from './diagnostics/journal';
 import { logGatewayFailure } from './verdictan/gateway-log';
+import { applySubagentEvent, finishSubagents } from './subagents';
 
 /** A run that ended, for the chat outcome store. */
 export interface RunEnded {
@@ -623,6 +624,9 @@ export class InteractiveChatRunner {
         this.expireQuestion(run, row.request_id);
         return;
       }
+      // Task calls of the run show as its subagents while it works.
+      const subagents = run.state.subagents ?? [];
+      if (applySubagentEvent(subagents, row)) run.state.subagents = subagents;
       if (row.parent_tool_use_id) return;
       if (row.type === 'stream_event') {
         if (row.event?.type === 'message_start')
@@ -819,6 +823,7 @@ export class InteractiveChatRunner {
     if (!run.process) void run.managed?.finish().catch(() => {});
     run.memory?.close();
     run.state.status = status;
+    finishSubagents(run.state.subagents);
     // The words of the agent, before Kalkidan replaces them with plain words for the chat.
     const reported = [run.state.error, run.stderr].filter(Boolean).join('\n');
     if (status === 'failed') normalizeChatFailure(run.state, run.stderr);

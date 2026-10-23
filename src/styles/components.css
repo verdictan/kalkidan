@@ -10,84 +10,153 @@
      bar share one edge at every width. */
   padding: var(--page-padding-top) var(--frame-x, var(--page-padding-x)) var(--page-padding-bottom);
 }
-/* A 32px title row, so the title is at the same y on every page. The optional 28px tile is
-   before the title. The actions align with the title row. The subtitle is under the title. */
-.page-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: var(--control-md);
-  grid-template-areas:
-    'title actions'
-    'subtitle subtitle';
-  align-items: center;
-  column-gap: var(--space-3);
-  min-width: 0;
-  padding-bottom: var(--space-4);
-}
-.page-header[data-icon] {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas:
-    'icon title actions'
-    '. subtitle subtitle';
-}
-.page-header-icon {
-  grid-area: icon;
+/* PageHeader (page-header.tsx): the one 48px header of every page, which is also the title
+   bar. Mark and title (15/24 600), the view switch, then the actions. Its bottom border and the
+   sidebar edge are the only borders around content. */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
   display: flex;
-}
-.page-title {
-  grid-area: title;
-  margin: 0;
+  flex: none;
+  align-items: center;
+  gap: var(--space-1);
   min-width: 0;
-  font-size: var(--text-xl);
-  line-height: 28px;
+  height: var(--header-height);
+  padding: 0 var(--space-4) 0 var(--frame-x, var(--page-padding-x));
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  -webkit-app-region: drag;
+}
+.app-header[data-tinted] {
+  background: var(--id-tint-header);
+}
+.app-header :is(button, a, input, [role='button'], [tabindex]) {
+  -webkit-app-region: no-drag;
+}
+.app-header-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin: 0 var(--space-4) 0 0;
+  font-size: var(--text-base);
+  line-height: 24px;
   font-weight: 600;
-  letter-spacing: -0.01em;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The title is a focus target after a dialog closes. It draws no ring. */
-.page-title:focus {
+.app-header-title:focus {
   outline: none;
 }
-.page-header-actions {
-  grid-area: actions;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.page-subtitle {
-  grid-area: subtitle;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+.app-header-title-text {
   min-width: 0;
-  min-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-header-subtitle {
   color: var(--muted-foreground);
   font-size: var(--text-xs);
   line-height: 16px;
+  font-weight: 400;
+}
+/* The crumbs of a chat: identity tokens 8 apart; the last one is the current item. */
+.app-header-crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-right: var(--space-4);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.app-header-crumbs .identity-token[data-strong] {
+  color: var(--foreground);
+  font-size: var(--text-base);
+  line-height: 24px;
+  font-weight: 600;
+  min-width: 0;
+}
+.app-header-views {
+  display: flex;
+  min-width: 0;
+}
+.app-header-views-list {
+  display: flex;
+  gap: 2px;
+}
+/* Views are the same segmented items as SegmentedControl: 28 high, radius 8, muted; the
+   current view is the strong fill, or the 12% identity tint where it is a place. */
+.app-header-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-sm);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 20px;
+  white-space: nowrap;
+  transition:
+    background-color var(--motion-fast) ease-out,
+    color var(--motion-fast) ease-out;
+}
+.app-header-view:hover {
+  color: var(--foreground);
+  background: var(--fill);
+}
+.app-header-view[aria-current='page'] {
+  background: var(--fill-strong);
+  color: var(--foreground);
+  font-weight: 500;
+}
+.app-header[data-view-tint] .app-header-view[aria-current='page'] {
+  background: var(--id-tint);
+}
+.app-header-view:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+.app-header-spacer {
+  flex: 1;
+  min-width: var(--space-2);
+}
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+@media (max-width: 999px) {
+  .app-header {
+    padding-left: var(--frame-x, var(--space-4));
+  }
 }
 
-/* Section headers inside a page, such as "Sessions 3". */
+/* Section labels inside a page, such as "Needs you" or "Repos": 12/16 muted, 28 high, 4 above
+   the first row. */
 .section-header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--control-md);
-  margin-bottom: var(--space-3);
+  min-height: var(--control-sm);
+  margin-bottom: var(--space-1);
 }
 .section-header[data-size='sm'] {
   min-height: 0;
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 .section-title {
   margin: 0;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  font-size: var(--text-sm);
-  line-height: 20px;
-  font-weight: 600;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  font-weight: 400;
 }
 .section-actions {
   margin-left: auto;
@@ -160,42 +229,44 @@
   line-height: 16px;
 }
 
-/* Segmented control: one active option. A 2px inset group with radius 8 on the neutral fill;
-   the active item is white and raised. sm (28/24, 12px) in the title bar, toolbars and
-   settings rows; md (32/28, 13px) in forms. */
+/* Segmented control (SY-B: the same component as the view switch). No group surface: items
+   2px apart, radius 8, muted; the active item is the strong fill. sm items are 28 (toolbars,
+   settings rows), md items are 32 (forms). */
 .segmented {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: var(--control-md);
-  padding: 2px;
-  border-radius: var(--radius-md);
-  background: var(--secondary);
+  padding: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
 }
 .segmented-item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: var(--control-sm);
+  height: var(--control-md);
   padding-inline: var(--space-3);
   border: 0;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
   font-size: var(--text-sm);
-  font-weight: 500;
+  font-weight: 400;
   cursor: default;
+  transition:
+    background-color var(--motion-fast) ease-out,
+    color var(--motion-fast) ease-out;
 }
 .segmented-item:hover {
   color: var(--foreground);
+  background: var(--fill);
 }
 .segmented-item[aria-pressed='true'] {
-  /* A raised selected item in both themes. */
-  background: var(--popover);
+  background: var(--fill-strong);
   color: var(--foreground);
-  box-shadow: var(--shadow-xs);
+  font-weight: 500;
 }
 .segmented-item:focus-visible {
   outline: none;
@@ -205,27 +276,22 @@
   width: 14px;
   height: 14px;
 }
-.segmented[data-size='sm'] {
-  height: var(--control-sm);
-}
 .segmented[data-size='sm'] .segmented-item {
-  height: var(--control-xs);
-  padding-inline: var(--space-2);
-  font-size: var(--text-xs);
-  line-height: 16px;
+  height: var(--control-sm);
+  padding-inline: 10px;
 }
 /* An option with an icon and no label is a square. */
 .segmented-item:has(> svg:only-child) {
-  width: var(--control-sm);
+  width: var(--control-md);
   padding-inline: 0;
 }
 .segmented[data-size='sm'] .segmented-item:has(> svg:only-child) {
-  width: var(--control-xs);
+  width: var(--control-sm);
 }
 
-/* An inner panel inside a dialog or page. */
+/* An inner panel inside a dialog or page: the grey fill, no border (SY-B). */
 .panel {
-  border: 1px solid var(--border);
+  background: var(--fill);
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-4);
 }
@@ -237,8 +303,8 @@
   max-height: 240px;
   overflow-y: auto;
   padding: var(--space-1);
-  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  background: var(--fill);
 }
 
 /* Row states. Hover is 4% and selected 7% on the page. The sidebar sets --row-hover and
@@ -311,16 +377,16 @@
   padding-right: var(--space-1);
 }
 
-/* ListRow (list-row.tsx): 48px, a 28px tile, a 12px gap. The hover bleeds 8px past the content
-   edge, so the text aligns with the content edge. */
+/* ListRow (list-row.tsx): 48px, a 12px gap. The hover bleeds 12px past the content edge, so
+   the text aligns with the content edge. */
 .list-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
   min-width: 0;
   min-height: var(--row-height-lg);
-  margin-inline: calc(-1 * var(--space-2));
-  padding-inline: var(--space-2);
+  margin-inline: calc(-1 * var(--space-3));
+  padding-inline: var(--space-3);
   border-radius: var(--radius-md);
 }
 .list-row[data-interactive]:hover {
@@ -391,17 +457,17 @@
   }
 }
 
-/* Tag (tag.tsx): 24px, radius 6, bordered, with an optional remove button. Badge is for status. */
+/* Tag (tag.tsx): only for labels from GitHub. 20 high, radius 4, the grey fill, no border. */
 .tag {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   max-width: 100%;
-  height: var(--control-xs);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--background);
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--fill);
   color: var(--foreground);
   font-size: var(--text-xs);
   line-height: 16px;
@@ -426,8 +492,8 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
   border-radius: var(--radius-xs);
@@ -505,9 +571,9 @@
 .group-label {
   margin: 0;
   color: var(--muted-foreground);
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs);
   line-height: 16px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: 0;
 }
 
@@ -536,14 +602,6 @@
   font-weight: 400;
   white-space: nowrap;
 }
-.kbd.kbd-cap {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 var(--space-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  background: var(--background);
-}
 
 /* Prose for chat messages, docs and task descriptions. */
 .prose-ui {
@@ -552,7 +610,7 @@
 }
 .prose-ui :where(h1) {
   font-size: var(--text-2xl);
-  line-height: 32px;
+  line-height: 28px;
   font-weight: 600;
   margin: var(--space-8) 0 var(--space-3);
 }
@@ -622,7 +680,7 @@
   --dot-color: var(--warning);
 }
 .activity-dot[data-state='done'] {
-  border: 1.5px solid var(--success);
+  border: 2px solid var(--success);
   background: transparent;
 }
 .activity-dot[data-state='approval'] {
@@ -727,7 +785,11 @@
 .prose-ui :where(a) {
   color: var(--link);
   text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.prose-ui :where(a:hover) {
+  text-decoration-color: currentColor;
 }
 
 /* Help text under a form control: quieter than the label. */
@@ -795,4 +857,356 @@
   --checkbox-tick: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.2 5 8.5l4.5-5'/%3E%3C/svg%3E");
   --checkbox-dash: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10' stroke='%23ffffff' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 5h6'/%3E%3C/svg%3E");
   --radio-dot: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 6 6'%3E%3Ccircle cx='3' cy='3' r='3' fill='%23ffffff'/%3E%3C/svg%3E");
+}
+
+/* Identity (R2). The shape tells the level, the color (--id) tells the item, the trailing
+   glyph tells the status. Marks never animate and never change with the status. */
+.identity-slot {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+.identity-mark {
+  display: block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  background: var(--id);
+}
+.identity-mark[data-kind='project'] {
+  border-radius: 3px;
+}
+.identity-mark[data-kind='repo'] {
+  border-radius: var(--radius-full);
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--id);
+}
+.identity-mark[data-kind='session'] {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+}
+.identity-mark[data-kind='subagent'] {
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  transform: rotate(45deg);
+}
+.identity-mark[data-size='lg'] {
+  width: 16px;
+  height: 16px;
+}
+.identity-mark[data-size='lg'][data-kind='project'] {
+  border-radius: var(--radius-xs);
+}
+.identity-mark[data-size='lg'][data-kind='repo'] {
+  box-shadow: inset 0 0 0 3px var(--id);
+}
+.identity-mark[data-size='lg'][data-kind='session'] {
+  width: 12px;
+  height: 12px;
+}
+.identity-mark[data-size='lg'][data-kind='subagent'] {
+  width: 9px;
+  height: 9px;
+}
+.identity-slot:has(> .identity-mark[data-size='lg']) {
+  width: 20px;
+  height: 20px;
+}
+/* A mark and a name inline, 6px apart. */
+.identity-token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.identity-token-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.identity-token[data-strong] {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+/* StatusGlyph (status-glyph.tsx): a 16px slot after the name. Working is a neutral 8px
+   spinner, needs you an amber "!", failed a red cross. Status colors are never identity. */
+.status-glyph {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin-left: auto;
+}
+.status-glyph[data-status='working']::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--border);
+  border-top-color: var(--foreground);
+  border-radius: var(--radius-full);
+  animation: status-glyph-spin 1s linear infinite;
+}
+.status-glyph[data-status='needs-you'] {
+  isolation: isolate;
+  color: var(--primary-foreground);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 700;
+}
+.status-glyph[data-status='needs-you']::before {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  z-index: -1;
+  border-radius: var(--radius-full);
+  background: var(--warning);
+}
+.status-glyph[data-status='failed']::before,
+.status-glyph[data-status='failed']::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: 3px;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--destructive);
+  transform: rotate(45deg);
+}
+.status-glyph[data-status='failed']::after {
+  transform: rotate(-45deg);
+}
+@keyframes status-glyph-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-glyph[data-status='working']::before {
+    animation: none !important;
+  }
+}
+
+/* Row (row.tsx): the one selectable line outside the tree. nav 32, list 48. */
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: var(--row-height);
+  border-radius: var(--radius-control);
+  color: var(--foreground);
+  transition: background-color var(--motion-fast) ease-out;
+}
+.row[data-size='list'] {
+  height: auto;
+  min-height: var(--row-height-lg);
+  margin-inline: calc(-1 * var(--space-3));
+  padding-right: var(--space-3);
+}
+.row[data-interactive]:hover {
+  background: var(--row-hover, var(--fill));
+}
+.row[data-selected],
+.row[data-selected]:hover {
+  background: var(--row-selected, var(--fill-strong));
+}
+.row[data-tint][data-selected],
+.row[data-tint][data-selected]:hover {
+  background: var(--id-tint);
+}
+.sidebar .row,
+.row[data-surface='sidebar'] {
+  --row-hover: var(--sidebar-hover);
+  --row-selected: var(--sidebar-selected);
+}
+.sidebar .row[data-tint][data-selected] {
+  background: var(--id-tint-sidebar);
+}
+.row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  height: 100%;
+  min-height: inherit;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+.row[data-size='list'] .row-main {
+  align-self: stretch;
+  gap: var(--space-3);
+  padding-left: var(--space-3);
+  padding-right: 0;
+}
+.row-main:focus-visible {
+  outline: none;
+}
+.row:has(.row-main:focus-visible) {
+  box-shadow: var(--focus-ring-inset);
+}
+.row-leading {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  color: var(--muted-foreground);
+}
+.row-leading > svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+.row-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.row-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row[data-size='list'] .row-title {
+  font-weight: 500;
+}
+.row-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-meta {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.row-main > .status-glyph {
+  margin-left: 0;
+}
+.row-actions {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-1);
+}
+.row[data-size='list'] .row-actions {
+  padding-right: 0;
+}
+.row:is(:hover, :focus-within) .row-actions,
+.row[data-actions-visible] .row-actions,
+.row-actions:has([data-state='open']) {
+  display: flex;
+}
+.row:not([data-actions-visible]):is(:hover, :focus-within) .row-meta {
+  display: none;
+}
+.row:not([data-actions-visible]):has(.row-actions:empty) .row-meta {
+  display: inline;
+}
+@media (hover: none) {
+  .row-actions {
+    display: flex;
+  }
+}
+
+/* IdentitySwatches (identity-swatches.tsx): 16px swatches, radius 4, 6 apart; the current one
+   has a 2px ring in its own color. */
+.identity-swatches {
+  display: grid;
+  gap: var(--space-1);
+}
+.identity-swatches-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px var(--space-2) var(--space-2);
+}
+.identity-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: var(--id);
+}
+.identity-swatch[aria-checked='true'] {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--id);
+}
+.identity-swatch:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+/* The automatic color while no color is chosen: a thin ring, not the check ring. */
+.identity-swatch[data-current] {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 3px color-mix(in srgb, var(--id) 60%, transparent);
+}
+/* "Automatic" as the last radio of the swatches: 20px text pill, grey fill when checked. */
+.identity-swatch-auto {
+  height: 20px;
+  margin-left: 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: none;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 20px;
+}
+.identity-swatch-auto:hover {
+  color: var(--foreground);
+}
+.identity-swatch-auto[aria-checked='true'] {
+  background: var(--fill);
+  color: var(--foreground);
+  font-weight: 500;
+}
+.identity-swatch-auto:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.identity-swatches-auto {
+  display: flex;
+  align-items: center;
+  height: var(--control-md);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.identity-swatches-auto:hover {
+  background: var(--fill);
 }

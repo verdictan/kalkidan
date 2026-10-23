@@ -1,9 +1,9 @@
 import { useTracker } from '../hooks/use-tracker';
 import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
 import {
+  ArrowUpRight,
   Check,
   ChevronDown,
-  ExternalLink,
   Layers2,
   Link2,
   LoaderCircle,
@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { cn } from '../lib/utils';
+import { StatusGlyph } from './ui/status-glyph';
 
 /** The name of the board on the tracker side, for example "GitHub Projects board". */
 export function boardLabel(providerName: string) {
@@ -397,6 +398,7 @@ function TrackerAccess({
   onOpenAuth,
   onPreferences,
   onConnect,
+  copied = false,
 }: {
   auth: TrackerAuthState;
   providerName: string;
@@ -406,6 +408,8 @@ function TrackerAccess({
   onPreferences(): void;
   /** Starts the sign-in. Given when access is read, not started, as the page opens. */
   onConnect?(): void;
+  /** True when the code is on the clipboard. */
+  copied?: boolean;
 }) {
   if (auth.status === 'ready') return null;
   if (auth.status === 'idle' && onConnect)
@@ -421,31 +425,22 @@ function TrackerAccess({
       </p>
     );
   if (auth.status === 'waiting')
+    // One row: the code, a live state and Open GitHub. No instructions (TK-6).
     return (
-      <div className="grid gap-3" aria-live="polite">
-        <p className="m-0 text-sm">
+      <div className="connect-code" aria-live="polite">
+        <output className="connect-code-value" aria-label={`${providerName} device code`}>
+          {auth.code || '····-····'}
+        </output>
+        <span className="connect-code-state" role="status">
           {auth.code
-            ? `Enter this code on ${providerName} and approve access.`
-            : `Requesting a code from ${providerName}…`}
-        </p>
-        {auth.code && (
-          <div className="flex gap-2">
-            <Input
-              aria-label={`${providerName} device code`}
-              readOnly
-              value={auth.code}
-              className="flex-1 text-center font-mono tracking-widest"
-              onFocus={(event) => event.target.select()}
-            />
-            <Button variant="outline" onClick={onOpenAuth}>
-              Open {providerName}
-              <ExternalLink aria-hidden="true" />
-            </Button>
-          </div>
-        )}
-        <p className="form-help m-0">
-          {auth.message || 'Waiting for approval. This updates automatically.'}
-        </p>
+            ? `${copied ? 'Copied · ' : ''}waiting for ${providerName}`
+            : `Asking ${providerName} for a code`}
+          <StatusGlyph status="working" />
+        </span>
+        <Button variant="secondary" disabled={!auth.code} onClick={onOpenAuth}>
+          Open {providerName}
+          <ArrowUpRight aria-hidden="true" />
+        </Button>
       </div>
     );
   return (
@@ -514,6 +509,19 @@ export function ConnectBoardPanel({
   // On the Tasks page the panel only reads the access; the sign-in starts on a click.
   const { auth, authorize, openAuth } = useTrackerAuth(api, provider, true, variant === 'dialog');
   const ready = auth.status === 'ready';
+  // "Connect GitHub" is one click: the code goes to the clipboard and GitHub opens.
+  const asked = useRef(false);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (auth.status !== 'waiting' || !auth.code || !asked.current) return;
+    asked.current = false;
+    const code = auth.code;
+    void navigator.clipboard?.writeText(code).then(
+      () => setCopied(true),
+      () => setCopied(false),
+    );
+    void openAuth();
+  }, [auth.status, auth.code]);
   const [owners, setOwners] = useState<TrackerOwner[]>([]);
   const [ownerId, setOwnerId] = useState('');
   const [projects, setProjects] = useState<TrackerProject[]>([]);
@@ -583,7 +591,8 @@ export function ConnectBoardPanel({
       const url = await target();
       if (url === connection?.project.url) return;
       await client.link(group.id, url);
-      showToast(connection ? 'The project now uses the new board.' : 'Board connected.');
+      // A new board shows in place, so only a change of board gets a toast.
+      if (connection) showToast('The project now uses the new board.');
       await onConnected?.();
     } catch (failure) {
       setError(errorMessage(failure));
@@ -611,17 +620,41 @@ export function ConnectBoardPanel({
         auth={auth}
         providerName={providerName}
         board={board}
+        copied={copied}
         onRetry={() => void authorize()}
-        onConnect={variant === 'page' ? () => void authorize() : undefined}
+        onConnect={
+          variant === 'page'
+            ? () => {
+                asked.current = true;
+                void authorize();
+              }
+            : undefined
+        }
         onOpenAuth={() => void openAuth()}
         onPreferences={() =>
           window.dispatchEvent(
             new CustomEvent('kalkidan-open-settings', {
-              detail: { section: 'account', anchor: settingsAnchors.github },
+              detail: { section: 'tools', anchor: settingsAnchors.github },
             }),
           )
         }
       />
+      {auth.status === 'waiting' && (
+        // The list that follows the approval, dimmed until then.
+        <ul className="connect-board-list" data-preview aria-hidden="true">
+          <li className="connect-board-row" data-first>
+            <Layers2 aria-hidden="true" />
+            <span className="connect-board-name">
+              <span className="connect-board-skeleton" />
+            </span>
+            <span className="connect-board-action">Connect</span>
+          </li>
+          <li className="connect-board-new">
+            <Plus aria-hidden="true" />
+            New board for {group.name}
+          </li>
+        </ul>
+      )}
       {ready && (
         <>
           <div className="connect-board-search">

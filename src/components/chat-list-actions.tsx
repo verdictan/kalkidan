@@ -181,8 +181,8 @@ export function useChatListActions(options: ChatListActionOptions) {
           <DialogHeader>
             <DialogTitle>Usage history</DialogTitle>
             <DialogDescription>
-              The policy decision, model, tokens, time and settlement of each managed agent request
-              in this chat.
+              The policy decision, model, tokens, time and settlement of each agent request through
+              Verdictan in this chat.
             </DialogDescription>
           </DialogHeader>
           <DialogBody>

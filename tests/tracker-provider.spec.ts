@@ -2,13 +2,13 @@ import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
 
 /**
- * Opens the project section of Settings from the "Project actions" menu of the project header,
- * and returns the Settings window.
+ * Opens Settings at the project part from the "Project actions" menu of the project header,
+ * and returns the Settings page.
  */
 async function openProjectSettings(page: Page) {
-  await page.locator('.project-header').getByRole('button', { name: 'Project actions' }).click();
-  await page.getByRole('menuitem', { name: 'Project settings…', exact: true }).click();
-  return page.getByRole('dialog', { name: 'Settings', exact: true });
+  await page.getByRole('main').getByRole('button', { name: 'Project actions' }).click();
+  await page.getByRole('menuitem', { name: 'Settings…', exact: true }).click();
+  return page.getByRole('region', { name: 'Settings', exact: true });
 }
 /** Refreshes the board from the board menu (the board name button). */
 async function refreshBoard(page: Page) {
@@ -76,8 +76,11 @@ test('a configured non-GitHub provider drives project creation and a read-only b
     };
   });
   await page.goto('/');
-  // The empty Projects page has New project in its header.
-  await page.getByRole('main').getByRole('button', { name: 'New project', exact: true }).click();
+  // With no project, the home page is the new chat composer. New project is in the sidebar.
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'New project', exact: true })
+    .click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
   await dialog.getByRole('button', { name: 'More options', exact: true }).click();
@@ -110,24 +113,27 @@ test('project workflow mappings can be configured and reopened', async ({ page }
   // The Tasks tab lists the boards on the page; one click connects a board.
   await page.getByRole('button', { name: 'Connect Atlas roadmap #1', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Tracker board', exact: true })).toBeVisible();
-  // Automatic status changes are a part of the Board group of the project section of
+  // Automatic status changes are a part of the board settings in the project part of
   // Settings. A choice saves at once.
   const workflow = await openProjectSettings(page);
-  await expect(workflow.getByRole('tab', { name: 'Atlas', exact: true })).toHaveAttribute(
-    'aria-selected',
-    'true',
-  );
+  await expect(workflow.getByRole('region', { name: 'Atlas', exact: true })).toBeVisible();
+  await workflow.getByRole('button', { name: 'Atlas roadmap', exact: true }).click();
   const changes = workflow.getByRole('list', { name: 'Automatic status changes' });
   // A step with no saved status and no status of the default name does not move the task.
   const opened = changes.getByRole('combobox', { name: 'When a pull request opens' });
   await expect(opened).toContainText("Don't move");
   await opened.click();
   await page.getByRole('option', { name: 'In progress', exact: true }).click();
-  await expect(page.getByText('Automatic status changes saved.', { exact: true })).toBeVisible();
-  await workflow.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Automatic status changes saved.' }),
+  ).toBeVisible();
+  // When the list of choices is closed, Escape leaves Settings.
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect(workflow).not.toBeVisible();
-  // Reopened, the section shows the saved choice.
+  // Reopened, the board settings show the saved choice.
   await openProjectSettings(page);
+  await workflow.getByRole('button', { name: 'Atlas roadmap', exact: true }).click();
   await expect(changes.getByRole('combobox', { name: 'When a pull request opens' })).toContainText(
     'In progress',
   );

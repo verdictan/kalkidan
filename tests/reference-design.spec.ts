@@ -12,7 +12,7 @@ test('desktop workflow preserves drafts across the title bar tools and resizable
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-projects.png' });
   await openSettings(page);
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-settings.png' });
-  // Settings is a dialog above the page. Escape closes it and Projects shows again.
+  // Settings is a page. Escape goes back, and Projects shows again.
   await page.keyboard.press('Escape');
   await expect(settingsDialog(page)).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
@@ -32,39 +32,46 @@ test('desktop workflow preserves drafts across the title bar tools and resizable
     animations: 'disabled',
     path: 'test-results/reference-conversation.png',
   });
-  // The title bar groups the tools. Each tool has one button there.
-  const toolButtons = page.locator('.topbar').getByRole('group', { name: 'Tools', exact: true });
-  const terminal = toolButtons.getByRole('button', { name: 'Terminal', exact: true });
-  const browser = toolButtons.getByRole('button', { name: 'Browser', exact: true });
-  await expect(terminal).toHaveCount(1);
-  await expect(browser).toHaveCount(1);
+  // The chat header has one Tools button. The tool pane has the tabs Changes, Code, Terminal
+  // and Browser.
+  const toolsButton = page
+    .getByRole('main')
+    .getByRole('group', { name: 'Tools', exact: true })
+    .getByRole('button', { name: 'Tools', exact: true });
+  await expect(toolsButton).toHaveCount(1);
+  const tabs = page.getByRole('tablist', { name: 'Tools', exact: true });
+  const terminal = tabs.getByRole('tab', { name: 'Terminal', exact: true });
+  const browser = tabs.getByRole('tab', { name: 'Browser', exact: true });
   // In the composer, the shortcut goes to the text field. Move the focus out first.
   await page.getByLabel('Message agent').blur();
   await page.keyboard.press('ControlOrMeta+t');
-  const tools = page.getByRole('region', { name: 'Repository tools', exact: true });
-  await expect(tools).toBeVisible();
-  await expect(terminal).toHaveAttribute('aria-pressed', 'true');
+  await expect(tabs).toBeVisible();
+  await expect(tabs.getByRole('tab')).toHaveText(['Changes', 'Code', 'Terminal', 'Browser']);
+  await expect(terminal).toHaveAttribute('aria-selected', 'true');
+  await expect(toolsButton).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByLabel('Message agent')).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-new-tab.png' });
-  // Select the shown tool again to hide the tools. The draft stays.
-  await terminal.click();
-  await expect(terminal).toHaveAttribute('aria-pressed', 'false');
-  await expect(tools).toBeHidden();
+  // The Tools button hides the pane again. The draft stays.
+  await toolsButton.click();
+  await expect(toolsButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(tabs).toBeHidden();
   await expect(page.getByLabel('Message agent')).toHaveValue(
     'Keep this plan while I inspect the app.',
   );
   await page.keyboard.press('Control+Backquote');
   // Control+` opens the terminal. The demo has no shell, so the pane shows why in place of
   // the terminal.
-  await expect(terminal).toHaveAttribute('aria-pressed', 'true');
-  await expect(tools.getByRole('alert').first()).toContainText('Open the desktop app');
+  await expect(terminal).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page.getByRole('tabpanel', { name: 'Terminal' }).getByRole('alert').first(),
+  ).toContainText('Open the desktop app');
   await browser.click();
-  await expect(browser).toHaveAttribute('aria-pressed', 'true');
+  await expect(browser).toHaveAttribute('aria-selected', 'true');
   const bounds = await page.getByLabel('Embedded browser').boundingBox();
   expect(bounds!.height).toBeGreaterThan(500);
   await page.screenshot({ animations: 'disabled', path: 'test-results/reference-browser.png' });
-  await browser.click();
-  await expect(tools).toBeHidden();
+  await page.getByRole('button', { name: 'Close tools', exact: true }).click();
+  await expect(tabs).toBeHidden();
   await page.setViewportSize({ width: 961, height: 988 });
   await expect(page.getByLabel('Message agent')).toHaveValue(
     'Keep this plan while I inspect the app.',

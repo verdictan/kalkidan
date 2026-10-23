@@ -1,8 +1,11 @@
 import { type Page } from '@playwright/test';
-import { test, expect, computersPage } from './helpers/app';
-import { openCodeFolder } from './helpers/navigation';
+import { test, expect, settingsDialog, settingsSection } from './helpers/app';
+import { openCodeFolder, openTreeChat } from './helpers/navigation';
 
-/** Opens a Claude Code chat. `allowed` is the model list of the organization, if any. */
+/**
+ * Opens a Claude Code chat. The desktop app finds Claude Code on this computer, but not Codex.
+ * `allowed` is the model list of the organization, if any.
+ */
 async function openChat(page: Page, setup: { model?: string; allowed?: string[] }) {
   await page.addInitScript((choice) => {
     const session = { id: 's', agent: 'claude', title: 'Review', cwd: '/repo', updatedAt: '' };
@@ -18,6 +21,37 @@ async function openChat(page: Page, setup: { model?: string; allowed?: string[] 
         platform: 'darwin',
       }),
       git: async () => null,
+      toolStatus: async () => ({
+        computer: 'local',
+        name: 'This Mac',
+        connected: true,
+        checkedAt: '',
+        tools: [
+          {
+            tool: 'claude',
+            name: 'Claude Code',
+            kind: 'agent',
+            state: 'ready',
+            installed: true,
+            version: '2.0.14',
+            signedIn: 'yes',
+            access: 'granted',
+            usable: true,
+            installUrl: 'https://example.test/claude',
+          },
+          {
+            tool: 'codex',
+            name: 'Codex',
+            kind: 'agent',
+            state: 'missing',
+            installed: false,
+            signedIn: 'unknown',
+            access: 'unknown',
+            usable: false,
+            installUrl: 'https://example.test/codex',
+          },
+        ],
+      }),
       models: async () => [
         { id: 'sonnet', name: 'Sonnet' },
         { id: 'opus', name: 'Opus' },
@@ -73,7 +107,7 @@ async function openChat(page: Page, setup: { model?: string; allowed?: string[] 
   }, setup);
   await page.goto('/');
   await openCodeFolder(page);
-  await page.getByRole('button', { name: 'Resume Review', exact: true }).click();
+  await openTreeChat(page, 'Review');
 }
 
 async function send(page: Page, text: string) {
@@ -83,49 +117,31 @@ async function send(page: Page, text: string) {
   return page.evaluate(() => (window as any).requests.at(-1));
 }
 
-/** The radio items of the model group in the open Agent and model menu. */
-const modelItems = (page: Page) => page.getByRole('menu').getByRole('menuitemradio');
+const chip = (page: Page) => page.getByRole('button', { name: 'Agent: Claude Code', exact: true });
 
-test('one allowed model shows as a label with the reason', async ({ page }) => {
-  await openChat(page, { model: 'sonnet', allowed: ['sonnet'] });
-  await expect(page.getByRole('button', { name: 'More options', exact: true })).toHaveCount(0);
+test('the agent chip lists the detected agents and the chat picks no model', async ({ page }) => {
+  // The organization setup has a model. The composer has no model choice: the agent CLI and the
+  // organization policy choose the model.
+  await openChat(page, { model: 'sonnet', allowed: ['sonnet', 'opus'] });
   await expect(page.getByRole('button', { name: /^Agent and model:/ })).toHaveCount(0);
-  // The chip names the model only when the chat uses another model than the default.
-  const label = page.getByRole('note', { name: /^Agent and model: Claude Code\./ });
-  await expect(label).toHaveText('Claude Code');
-  await label.focus();
-  await expect(page.getByRole('tooltip')).toHaveText('Your organization sets the model.');
-  // The chat picks no model, so the setup model applies.
+  await chip(page).click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toContainText('On this computer');
+  const claude = menu.getByRole('menuitem', { name: /Claude Code/ });
+  await expect(claude).toContainText('2.0.14');
+  await expect(claude.getByLabel('Selected', { exact: true })).toBeVisible();
+  // An agent that Kalkidan did not find opens its official page.
+  await expect(menu.getByRole('menuitem', { name: /Codex/ })).toContainText('Not installed');
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(0);
+  await expect(menu.getByRole('menuitem', { name: 'Manage agents…' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   expect((await send(page, 'Hello')).model).toBeUndefined();
 });
 
-test('the model chip lists only the allowed models and marks the setup default', async ({
-  page,
-}) => {
-  await openChat(page, { model: 'sonnet', allowed: ['sonnet', 'opus'] });
-  const chip = page.getByRole('button', { name: /^Agent and model:/ });
-  // The setup model is the default, so the chip shows only the agent.
-  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code');
-  await chip.click();
-  await expect(modelItems(page)).toHaveText(['SonnetDefault', 'Opus']);
-  await page.getByRole('menuitemradio', { name: 'Opus', exact: true }).click();
-  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code · Opus');
-  expect((await send(page, 'Use Opus')).model).toBe('opus');
-  // Manage agents… opens the Computers page, where each agent has its organization setup.
-  await chip.click();
-  await page.getByRole('menuitem', { name: 'Manage agents…', exact: true }).click();
-  await expect(computersPage(page)).toBeVisible();
-  await expect(
-    computersPage(page).getByRole('group', { name: 'Claude Code', exact: true }),
-  ).toBeVisible();
-});
-
-test('without managed setup, the chip keeps the agent models', async ({ page }) => {
+test('Tools… in the agent chip opens the Tools part of Settings', async ({ page }) => {
   await openChat(page, {});
-  const chip = page.getByRole('button', { name: /^Agent and model:/ });
-  await expect(chip).toHaveAccessibleName('Agent and model: Claude Code');
-  await chip.click();
-  await expect(modelItems(page)).toHaveText(['Default', 'Sonnet', 'Opus', 'Haiku']);
-  await page.getByRole('menuitemradio', { name: 'Haiku', exact: true }).click();
-  expect((await send(page, 'Use Haiku')).model).toBe('haiku');
+  await chip(page).click();
+  await page.getByRole('menuitem', { name: 'Tools…', exact: true }).click();
+  await expect(settingsDialog(page)).toBeVisible();
+  await expect(settingsSection(page, 'Tools')).toBeVisible();
 });

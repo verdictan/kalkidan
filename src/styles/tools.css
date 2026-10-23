@@ -83,7 +83,8 @@
   line-height: 16px;
   color: var(--muted-foreground);
 }
-/* The changed files: 28px rows with the full path, in an 8px block over the diff. */
+/* The changed files: 28px rows, the name in the UI font and the folder muted after it, the
+   counts on the right (CH-18). An 8px block over the diff. */
 .diff-file-list {
   display: grid;
   flex-shrink: 0;
@@ -104,20 +105,20 @@
   height: 28px;
   padding: 0 8px;
   border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  line-height: 16px;
+  font-size: var(--text-sm);
+  line-height: 20px;
   text-align: left;
   color: var(--foreground);
+  white-space: nowrap;
 }
 .diff-file-icon {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--muted-foreground);
 }
 .diff-file:hover {
   background: var(--surface-hover);
-  color: var(--foreground);
 }
 .diff-file:focus-visible {
   outline: none;
@@ -125,41 +126,233 @@
 }
 .diff-file[aria-current='true'] {
   background: var(--surface-selected);
-  color: var(--foreground);
 }
-.diff-file-path {
-  flex: 1;
+.diff-file-name {
+  flex-shrink: 0;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-file-folder {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  color: var(--muted-foreground);
+}
+.diff-file-counts {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+  margin-left: auto;
+  font-size: var(--text-xs);
+}
+/* The diff of the selected file (CH-B2): 12/20 mono, a 40px line number column, long lines
+   wrap with a hanging indent (CH-17). A click on a line opens it in Code. */
+.diff-view {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+  padding: 0 0 8px;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  line-height: 16px;
+  line-height: 20px;
+}
+.diff-view:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+.diff-view-hunk {
+  padding: 4px 16px 4px 56px;
+  color: var(--muted-foreground);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.diff-view-line {
+  display: flex;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.diff-view-line[data-kind='add'] {
+  background: color-mix(in srgb, var(--success) 7%, transparent);
+}
+.diff-view-line[data-kind='remove'] {
+  background: color-mix(in srgb, var(--destructive) 7%, transparent);
+}
+.diff-view-line:hover {
+  box-shadow: inset 2px 0 0 var(--border-strong);
+  cursor: pointer;
+}
+.diff-view-line[data-kind='remove']:hover {
+  box-shadow: none;
+  cursor: default;
+}
+.diff-view-number {
+  flex: none;
+  width: 40px;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--border-strong);
+  user-select: none;
+}
+.diff-view-text {
+  min-width: 0;
+  padding: 0 16px 0 4ch;
+  text-indent: -4ch;
 }
 .diff-count-add {
   color: var(--diff-add);
   font-variant-numeric: tabular-nums;
-}
-/* The counts stay on the right, also for a file without a folder path. */
-.diff-file .diff-count-add {
-  margin-left: auto;
 }
 .diff-count-remove {
   color: var(--diff-remove);
   font-variant-numeric: tabular-nums;
 }
 
-/* One toolbar at the top of every tool pane: browser, find, device, Changes, terminal and the
-   side chat. A 44px box with the divider inside it, padding 0/8/0/12 and 28px controls. A
-   title (13/500) starts 16px from the edge, then 12px muted status. A status
-   bar is 24px with 11px text, for passive status only. */
+/* The one tool pane (CH-B): a 40px header with the tabs Changes · Code · Terminal · Browser
+   as a segmented control and Close, the same rhythm as the header (CH-16). */
+.tool-pane-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.tool-pane-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 28px;
+  overflow: hidden;
+}
+.tool-pane-tab {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+.tool-pane-tab:hover {
+  color: var(--foreground);
+}
+.tool-pane-tab[aria-selected='true'] {
+  background: var(--surface-selected);
+  color: var(--foreground);
+}
+.tool-pane-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.tool-pane-count {
+  font-weight: 400;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.tool-pane-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 16px;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+/* The ship footer of the Changes tab (CH-B2): the PR title field, the branch line and the
+   brown split button "Create pull request ▾". */
+.ship-footer {
+  display: grid;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border);
+}
+.ship-title {
+  height: 32px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  font-size: var(--text-sm);
+  color: var(--foreground);
+  outline: none;
+}
+.ship-title:focus-visible {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+.ship-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+/* The commit is saved, but the pull request did not open: the note, the error and Try again. */
+.ship-partial {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+.ship-partial > p {
+  margin: 0;
+}
+.ship-partial-title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--foreground);
+}
+.ship-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ship-branch {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  color: var(--muted-foreground);
+}
+.ship-split {
+  display: flex;
+  flex-shrink: 0;
+}
+.ship-split > .ship-primary:not(:last-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.ship-split > .ship-more {
+  width: 28px;
+  padding: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid rgb(255 255 255 / 0.3);
+}
+/* One toolbar inside a tool: browser, find and device. A 40px box with the divider inside it,
+   padding 0/8/0/12 and 28px controls. A status bar is 24px with 11px text, for passive status
+   only. */
 .tool-toolbar {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: var(--space-1);
-  height: 44px;
+  height: 40px;
   padding: 0 var(--space-2) 0 var(--space-3);
   overflow: hidden;
   box-shadow: inset 0 -1px 0 var(--border);
@@ -257,47 +450,6 @@
   display: none;
 }
 
-.agent-panes.has-side-chat {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0;
-}
-.agent-panes.has-side-chat > .agent-pane:not([hidden]) ~ .agent-pane:not([hidden]) {
-  border-left: 1px solid var(--border);
-}
-/* Each pane is a flex column: the side-chat header, then the chat with its composer docked at
-   the bottom of its own pane. A narrow window stacks the two chats. */
-@media (max-width: 1100px) {
-  .agent-panes.has-side-chat {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .agent-panes.has-side-chat > .agent-pane:not([hidden]) ~ .agent-pane:not([hidden]) {
-    border-left: 0;
-    border-top: 1px solid var(--border);
-  }
-}
-/* The side chat header: the title, the agent in 12px muted text, then Close. */
-.side-chat-header {
-  gap: var(--space-2);
-}
-.side-chat-title {
-  flex: 0 1 auto;
-  min-width: 0;
-  padding-left: var(--space-1);
-  overflow: hidden;
-  color: var(--foreground);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  line-height: 20px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.side-chat-agent {
-  flex: 1 0 auto;
-  color: var(--muted-foreground);
-}
-
 /* Chat stays mounted alongside the tools; native surfaces track the right pane bounds. The
    chat keeps at least 420px and the tool pane at least 360px. */
 .conversation-split {
@@ -339,24 +491,12 @@
     grid-row: 2;
   }
 }
-/* "Changes  kal/sign-in-tests → main" with Close: the header of the Changes pane. The
-   Terminal pane has the same header: "Terminal", the folder, then its icons. */
-.diff-panel-header,
+/* The Terminal toolbar: the folder or "Shell exited", then its icons. */
 .terminal-header {
   gap: var(--space-2);
 }
-.diff-panel-header .tool-toolbar-status,
 .terminal-header .tool-toolbar-status {
-  padding-left: 0;
-}
-.tool-pane-title,
-.diff-panel-title {
-  flex-shrink: 0;
   padding-left: var(--space-1);
-  color: var(--foreground);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  line-height: 20px;
 }
 .conversation-split .conversation-tool-dock {
   min-width: 0;
@@ -436,8 +576,7 @@
 .tool-tab-close {
   color: var(--muted-foreground);
 }
-/* Terminal and Browser in the title bar: two 28px icons. The pressed icon is the shown tool.
-   The changes row of the chat is the one way to Changes. */
+/* The one Tools button in the header: pressed while the pane shows. */
 .tool-launch-button {
   color: var(--muted-foreground);
 }

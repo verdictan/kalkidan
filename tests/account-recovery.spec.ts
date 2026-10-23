@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-/** A first run with a saved region and a sign-in that expires before the browser finishes. */
+/**
+ * A signed-out desktop with a saved region and a sign-in that expires before the browser
+ * finishes. The sign-in starts from the sidebar footer.
+ */
 async function signedOut(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
     const apiUrl = 'https://api.eu.verdictan.com';
@@ -15,9 +18,6 @@ async function signedOut(page: import('@playwright/test').Page) {
         warnings: [],
         platform: 'darwin',
       }),
-      agentInstallations: async () => [],
-      firstRunState: async () => ({ welcomeDone: false, everSignedIn: false }),
-      setWelcomeDone: async () => ({ welcomeDone: true, everSignedIn: false }),
       verdictanStatus: async () => ({
         region: 'eu',
         phase: 'signed-out',
@@ -36,19 +36,30 @@ async function signedOut(page: import('@playwright/test').Page) {
   await page.goto('/');
 }
 
-test('the Welcome screen offers a new verification email and account recovery after a failure', async ({
+/** Starts the sign-in from the "Sign in" button in the sidebar footer. */
+async function signIn(page: import('@playwright/test').Page) {
+  await page
+    .getByRole('navigation', { name: 'Projects and repositories' })
+    .getByRole('button', { name: 'Sign in', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Sign in to Verdictan' });
+  // The region is saved, so one click starts the sign-in. The button shows when it does not.
+  const start = dialog.getByRole('button', { name: 'Sign in with Verdictan', exact: true });
+  await expect(dialog.getByRole('alert').or(start)).toBeVisible();
+  if (await start.isVisible()) await start.click();
+  return dialog;
+}
+
+test('the sign-in offers a new verification email and account recovery after a failure', async ({
   page,
 }) => {
   await signedOut(page);
-  // Welcome is one card with the steps. Its first step signs in.
-  await expect(page.getByRole('region', { name: 'Welcome to Kalkidan' })).toBeVisible();
+  // The first window is the composer. No Welcome screen asks for the sign-in.
+  await expect(page.getByRole('region', { name: 'Welcome to Kalkidan' })).toHaveCount(0);
   // The account help shows only after a sign-in fails.
   const trouble = page.getByRole('button', { name: 'Trouble signing in?' });
-  await expect(
-    page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }),
-  ).toBeVisible();
   await expect(trouble).toHaveCount(0);
-  await page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }).click();
+  await signIn(page);
   await expect(page.getByRole('alert')).toHaveText('The sign-in did not finish');
   await trouble.click();
   await page.getByRole('menuitem', { name: 'Send the verification email again' }).click();
@@ -65,7 +76,7 @@ test('the Welcome screen offers a new verification email and account recovery af
 
 test('an expired sign-in link starts again and keeps the account help', async ({ page }) => {
   await signedOut(page);
-  await page.getByRole('button', { name: 'Sign in with Verdictan', exact: true }).click();
+  await signIn(page);
   // The title is an alert, so a screen reader reads it at once.
   await expect(page.getByRole('alert')).toHaveText('The sign-in did not finish');
   await expect(page.getByText(/The sign-in link expired after 5 minutes/)).toBeVisible();

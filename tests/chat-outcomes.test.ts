@@ -89,19 +89,19 @@ test('outcome words are plain and never show provider text or codes', () => {
   const failed = outcomeLabel({ outcome: 'failed', reason: 'gateway_refused' });
   assert.equal(
     failed,
-    'The last run failed. The managed gateway stopped this turn after a refusal.',
+    'The last run failed. The Verdictan gateway stopped this turn after a refusal.',
   );
   assert.match(outcomeLabel({ outcome: 'failed', reason: 'transport_lost' }), /connection/);
   assert.match(
     outcomeLabel({ outcome: 'failed', reason: 'desktop.gateway_failed' }),
-    /^The last run failed\. The connection to managed agents stopped\. Try again\.$/,
+    /^The last run failed\. The connection to the Verdictan gateway stopped\. Try again\.$/,
   );
   assert.equal(
     outcomeLabel({ outcome: 'failed' }),
     'The last run failed. The agent stopped because of an error.',
   );
   const refused = outcomeLabel({ outcome: 'refused', reason: 'desktop.auth_required' });
-  assert.equal(refused, 'Managed agents did not start the last run. Sign in to managed agents.');
+  assert.equal(refused, 'Verdictan did not start the last run. Sign in to Verdictan.');
   assert.doesNotMatch(refused, /desktop\./);
   assert.match(outcomeLabel({ outcome: 'refused' }), /launch checks did not pass/);
 });

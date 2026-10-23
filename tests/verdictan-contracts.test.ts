@@ -295,7 +295,7 @@ test('a known-broken release keeps its account, and names the release that fixes
   assert.equal(result.endOfSupport, '2027-01-20');
   assert.match(
     result.message,
-    /cannot start managed gateways\. Update the runtime to 0\.6\.12 or later\. Support stops on 2027-01-20\./,
+    /cannot start the Verdictan gateway\. Update the runtime to 0\.6\.12 or later\. Support stops on 2027-01-20\./,
   );
   // The window decides first: after its end of support, a known-broken release is refused.
   const after = runtimeCompatibility('0.6.11', Date.parse('2027-01-20T00:00:00Z'));

@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import type { API, Snapshot, Agent, Project } from '../types';
-import { Progress } from './ui/progress';
-import { runtimeProgress, useRuntimeStatus } from '../hooks/use-verdictan-status';
+import type { DesktopAPI, GatewayRuntimeState } from '../domain/desktop';
+import { cn } from '../lib/utils';
+import { Button } from './ui/button';
 
 /**
  * Opens a new chat in a code folder with an empty composer. Use it after the first code folder
@@ -11,7 +14,7 @@ export function startFirstChat(detail: { groupId: string; repoId?: string; agent
   window.dispatchEvent(new CustomEvent('kalkidan-new-session', { detail }));
 }
 
-/** @deprecated The Get started dialog is gone. The Welcome card is the one first run. */
+/** @deprecated The Get started dialog is gone. The tools check is the one first run. */
 export function openGetStarted() {}
 
 const storageKey = 'kalkidan:onboarding:v1';
@@ -52,36 +55,71 @@ export function GetStartedMenuItem() {
   return null;
 }
 
-// A bridge with no methods, for callers that do not give `api`. The hook then reads nothing.
-const noApi = {} as API;
+/** The managed gateway runtime, when the desktop reports it. */
+function gateway(api: API) {
+  return api as API & DesktopAPI;
+}
 
 /**
- * The sidebar footer row while the managed agents service installs: "Setting up agents · 62%"
- * and a bar. Otherwise it renders nothing. There is no "Get started" row or dialog now.
+ * The sidebar footer row for the managed gateway runtime. The runtime installs and repairs
+ * itself after the sign-in; that is never a task for the user, so the row shows nothing while
+ * it works. It shows only a failure that the user can act on: the message and "Try again".
  */
 export function GetStartedButton({
   api,
+  className,
 }: {
-  /** Without `api`, the row does not know the runtime. */
+  /** Without `api`, the row shows nothing. */
   api?: API;
   data?: Pick<Snapshot, 'projects' | 'sessions'>;
   onOpen?: () => void;
   className?: string;
 }) {
-  const runtime = useRuntimeStatus(api || noApi, !!api);
-  if (!runtime.busy || runtime.installed) return null;
-  const value = runtimeProgress(runtime.status);
+  const [state, setState] = useState<GatewayRuntimeState>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!api || typeof gateway(api).gatewayRuntime !== 'function') return;
+    let live = true;
+    const read = () =>
+      void Promise.resolve()
+        .then(() => gateway(api).gatewayRuntime!())
+        .then((next) => live && setState(next))
+        .catch(() => undefined);
+    read();
+    const stop = api.onVerdictanChanged?.(read);
+    window.addEventListener('focus', read);
+    return () => {
+      live = false;
+      stop?.();
+      window.removeEventListener('focus', read);
+    };
+  }, [api]);
+  if (!api || state?.state !== 'failed') return null;
+  async function retry() {
+    if (!api || typeof gateway(api).gatewayRuntimeRetry !== 'function') return;
+    setBusy(true);
+    try {
+      setState(await gateway(api).gatewayRuntimeRetry!());
+    } catch {
+      /* The row stays. The user can try again. */
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
-    <div className="onboarding-setup-progress" role="status">
-      <span>Setting up agents{value !== undefined ? ` · ${value}%` : ''}</span>
-      <Progress value={value} label="Setting up agents" />
+    <div className={cn('st-runtime-failed', className)} role="alert">
+      <CircleAlert className="st-tool-warn" aria-hidden="true" />
+      <span className="min-w-0 flex-1">{state.message || 'Agents could not start.'}</span>
+      <Button variant="ghost" size="sm" disabled={busy} onClick={() => void retry()}>
+        {busy ? 'Trying…' : 'Try again'}
+      </Button>
     </div>
   );
 }
 
 /**
- * @deprecated The Get started dialog is gone: the Welcome card signs in and adds the first
- * project, and the project opens on its composer. Renders nothing.
+ * @deprecated The Get started dialog is gone: the tools check shows when a tool is missing, and
+ * the sign-in comes at the first send. Renders nothing.
  */
 export function Onboarding(_props: {
   api: API;

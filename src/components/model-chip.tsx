@@ -1,22 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { API } from '../api/contracts';
-import {
-  completeSelection,
-  initialSelection,
-  type ManagedAgentKind,
-  type VerdictanSetup,
-} from '../domain/verdictan';
 import type { ModelOption } from '../types';
 import { modelChoice, type ModelChoice } from '../domain/model-choice';
-import { allowedModels } from '../lib/verdictan-labels';
-import {
-  onPreferredAgentChange,
-  readPreferredAgent,
-  savePreferredAgent,
-} from '../lib/agent-preference';
-import { managedAgentsChangedEvent, notifyManagedAgentsChanged } from './verdictan-settings';
-import { openComputers } from './computers-page';
-import { ChevronDown, Settings2 } from 'lucide-react';
+import { agentChoices, type AgentChoice, type ComputerTools } from '../domain/desktop';
+import { savePreferredAgent } from '../lib/agent-preference';
+import { Check, ChevronDown, Settings2, SquareArrowOutUpRight } from 'lucide-react';
 import { agentCatalog, isAgent } from '../config/agents';
 import { AgentIcon } from './ui/agent-icon';
 import { Button } from './ui/button';
@@ -24,273 +12,209 @@ import { composerChipClass } from './composer';
 import { cn } from '../lib/utils';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
-import { showToast } from './ui/toast';
+import { openSettings } from './chat-links';
 
-// The setup choices change seldom. Chats share one read for a short time.
-const setupCache = new WeakMap<API, { at: number; value: Promise<VerdictanSetup | undefined> }>();
-const setupLifetime = 60_000;
-function readSetup(api: API) {
-  const cached = setupCache.get(api);
-  if (cached && Date.now() - cached.at < setupLifetime) return cached.value;
-  const value =
-    typeof api.verdictanSetup === 'function'
-      ? Promise.resolve()
-          .then(() => api.verdictanSetup())
-          .catch(() => undefined)
-      : Promise.resolve(undefined);
-  setupCache.set(api, { at: Date.now(), value });
-  return value;
-}
+/** The tool detection calls of the desktop app (DESKTOP). Older builds do not have them. */
+type ToolsAPI = {
+  toolStatus?: (computer?: string, options?: { fresh?: boolean }) => Promise<ComputerTools>;
+  onToolsChange?: (callback: (computer: ComputerTools) => void) => () => void;
+};
 
-/** The API of the last composer. "Use for new chats" saves the default model through it. */
-let setupApi: API | undefined;
+/** The line under the agent list. Kalkidan finds new programs when it starts. */
+export const restartLine = 'Installed another agent? Restart Kalkidan to find it.';
 
 /**
- * The models that the composer offers for a chat. A managed setup limits them to the models
- * that the organization allows.
+ * The agents that Kalkidan found on the computer of a chat: this computer, or the SSH host.
+ * Kalkidan does not install, update or set up agents (R6). Undefined until the check answers.
+ * Without the check (an older desktop app), every agent counts as available.
  */
-export function useModelChoice(
-  api: API,
-  agent: string,
-  models: ModelOption[],
-  agentName: string,
-): ModelChoice {
-  const [setup, setSetup] = useState<VerdictanSetup>();
+export function useDetectedAgents(api: API, hostId?: string): AgentChoice[] | undefined {
+  const tools = api as API & ToolsAPI;
+  const computer = hostId || 'local';
+  const [found, setFound] = useState<ComputerTools | null | undefined>(undefined);
   useEffect(() => {
-    setupApi = api;
     let live = true;
-    const read = (fresh = false) => {
-      if (fresh) setupCache.delete(api);
-      void readSetup(api).then((value) => live && setSetup(value));
-    };
-    read();
-    const changed = () => read(true);
-    window.addEventListener(managedAgentsChangedEvent, changed);
-    const unsubscribe = api.onVerdictanChanged?.(changed);
+    if (typeof tools.toolStatus !== 'function') {
+      setFound(null);
+      return;
+    }
+    setFound(undefined);
+    Promise.resolve()
+      .then(() => tools.toolStatus!(computer))
+      .then((value) => live && setFound(value))
+      .catch(() => live && setFound(null));
+    const unsubscribe = tools.onToolsChange?.((value) => {
+      if (live && value.computer === computer) setFound(value);
+    });
     return () => {
       live = false;
-      window.removeEventListener(managedAgentsChangedEvent, changed);
       unsubscribe?.();
     };
-  }, [api]);
-  const kind = agent === 'codex' || agent === 'claude' ? agent : undefined;
-  return modelChoice({
-    models,
-    allowed: kind ? allowedModels(setup, kind) : undefined,
-    setupModel: kind ? setup?.selections?.[kind]?.model || undefined : undefined,
-    agentName,
-  });
-}
-
-/** The value of the default item. A menu item cannot have an empty value. */
-const defaultValue = 'default';
-export const fixedModelHint = 'Your organization sets the model.';
-/** @deprecated The chip has "Manage agents…" now. */
-export const moreModelsHint = '';
-
-/** Opens the Computers page at the agents, where each agent has its program and setup. */
-function manageAgents() {
-  openComputers('settings-agents');
+  }, [api, computer]);
+  if (found === undefined) return undefined;
+  const choices = found
+    ? agentChoices(found)
+    : agentCatalog.map((agent) => ({
+        agent: agent.id,
+        name: agent.name,
+        available: true,
+        installUrl: '',
+      }));
+  // The order of the agent catalog: Codex, then Claude Code (CH-B4).
+  return agentCatalog
+    .map((agent) => choices.find((choice) => choice.agent === agent.id))
+    .filter((choice): choice is AgentChoice => !!choice);
 }
 
 /**
- * Saves the agent and the model of this chat for new chats. The agent is the preference of
- * this computer. The model is the default model of the organization setup of the agent. A
- * setup that is not complete keeps its model, and the toast opens the Computers page.
+ * The agent picker of the composer (CH-B4): a 28px chip with the agent icon and name. The menu
+ * lists the agent CLIs that Kalkidan found on this computer, with their versions, "through
+ * Verdictan". An agent that is not found shows "Not installed" and opens its official page.
+ * There is no model, no "Use for new chats" and no agent management. Before the first message,
+ * the user can change the agent; Kalkidan remembers the last choice.
  */
-async function saveForNewChats(agent: string, model: string, agentName: string) {
-  const before = readPreferredAgent();
-  if (isAgent(agent)) savePreferredAgent(agent);
-  const kind: ManagedAgentKind | undefined =
-    agent === 'codex' || agent === 'claude' ? agent : undefined;
-  const api = setupApi;
-  let saved = !model;
-  if (kind && model && api && typeof api.verdictanSelect === 'function') {
-    try {
-      const setup = await api.verdictanSetup();
-      const current = initialSelection(setup, kind);
-      const next = { ...current, model };
-      if (completeSelection(setup, kind, next)) {
-        await api.verdictanSelect(kind, next);
-        setupCache.delete(api);
-        notifyManagedAgentsChanged();
-        saved = true;
-      }
-    } catch {
-      saved = false;
-    }
-  }
-  if (saved)
-    showToast({
-      message: `New chats use ${agentName}${model ? ` with this model` : ''}`,
-      actions:
-        isAgent(agent) && before !== agent
-          ? [{ label: 'Undo', onClick: () => savePreferredAgent(before) }]
-          : undefined,
-    });
-  else
-    showToast({
-      message: `New chats use ${agentName}. Set up ${agentName} to save the model.`,
-      actions: [{ label: 'Set up', onClick: manageAgents }],
-    });
-}
-
-/** The agent of new chats. It changes when another view saves it. */
-function usePreferredAgent() {
-  const [agent, setAgent] = useState<string>(readPreferredAgent);
-  useEffect(() => onPreferredAgentChange(setAgent), []);
-  return agent;
-}
-
-/**
- * The agent picker of the composer. It shows the agent, and the model when the chat does not
- * use the default model. Before
- * the first message, it can also change the agent. With one model and no agent choice, it is a
- * label with a tooltip and no arrow.
- *
- * Composer variant: like every composer control, the picker is a 28px pill (Button `chip`).
- * Use pills only in the composer. Forms use Select.
- */
-export function ModelChip({
-  choice,
-  value,
-  onChange,
-  disabled,
-  failed,
+export function AgentPicker({
+  api,
   agent,
-  agentName,
+  hostId,
   onAgentChange,
+  disabled,
 }: {
-  choice: ModelChoice;
-  value: string;
-  onChange: (model: string) => void;
-  disabled?: boolean;
-  /** True when the agent's models did not load. */
-  failed?: boolean;
+  api: API;
   /** The agent of the chat, for example "codex". */
   agent: string;
-  agentName: string;
-  /** Changes the agent of a new chat. Without it, the agent cannot change. */
+  /** The SSH host of the chat. Undefined: this computer. */
+  hostId?: string;
+  /** Changes the agent of a new chat. Without it, the agent of the chat cannot change. */
   onAgentChange?: (agent: string) => void;
+  disabled?: boolean;
 }) {
-  const preferred = usePreferredAgent();
-  const current = choice.options.find((option) => option.id === value);
-  const modelName = current?.name || (choice.managed ? choice.defaultName : '');
-  // The chip names the model only when the chat uses another model than the default.
-  const label = current && !current.isDefault ? `${agentName} · ${current.name}` : agentName;
-  const agents = onAgentChange ? agentCatalog : [];
-  if (choice.fixed && agents.length < 2)
-    return (
-      <Hint label={fixedModelHint}>
-        <span
-          tabIndex={0}
-          role="note"
-          aria-label={`Agent and model: ${label}. ${fixedModelHint}`}
-          className="model-chip-label inline-flex h-7 max-w-[220px] min-w-0 shrink items-center gap-1.5 rounded-full px-2 text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-        >
-          <AgentIcon agent={agent} className="size-3.5" />
-          <span className="truncate">{label}</span>
-        </span>
-      </Hint>
-    );
-  // Managed: the setup model is an option. Not managed: the agent's default is an option.
-  const selected = current
-    ? current.id
-    : choice.managed
-      ? choice.options.find((option) => option.isDefault)?.id || defaultValue
-      : defaultValue;
-  // The model that new chats would use: the selected one, or none for the default.
-  const chosen = selected === defaultValue ? '' : selected;
-  const setupModel = choice.options.find((option) => option.isDefault)?.id || '';
-  const usedForNewChats = preferred === agent && (!chosen || chosen === setupModel);
+  const choices = useDetectedAgents(api, hostId);
+  const name = agentCatalog.find((item) => item.id === agent)?.name || agent;
   return (
     <DropdownMenu>
-      <Hint
-        label={
-          onAgentChange
-            ? 'Change the agent or the model'
-            : modelName
-              ? `Model: ${modelName}`
-              : 'Change the model'
-        }
-        disabled={disabled}
-      >
+      <Hint label={onAgentChange ? 'Change the agent' : 'Agent'} disabled={disabled}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="chip"
             disabled={disabled}
-            aria-label={`Agent and model: ${label}`}
-            className={cn('max-w-[220px] min-w-0 shrink', composerChipClass)}
+            aria-label={`Agent: ${name}`}
+            className={cn(
+              'composer-agent max-w-[220px] min-w-0 shrink data-[state=open]:bg-[var(--surface-selected)] data-[state=open]:text-foreground',
+              composerChipClass,
+            )}
           >
             <AgentIcon agent={agent} className="size-3.5" />
-            <span className="truncate">{label}</span>
-            {!disabled && <ChevronDown aria-hidden="true" className="size-3.5" />}
+            <span className="truncate">{name}</span>
+            <ChevronDown aria-hidden="true" className="size-3.5" />
           </Button>
         </DropdownMenuTrigger>
       </Hint>
-      <DropdownMenuContent align="start" width="wide">
-        {agents.length > 1 && (
-          <>
-            <DropdownMenuLabel>Agent</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={agent}
-              onValueChange={(next) => next !== agent && onAgentChange?.(next)}
-            >
-              {agents.map((item) => (
-                <DropdownMenuRadioItem key={item.id} value={item.id}>
-                  <AgentIcon agent={item.id} />
-                  {item.name}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-          </>
-        )}
-        <DropdownMenuLabel>Model</DropdownMenuLabel>
-        <DropdownMenuRadioGroup
-          value={selected}
-          onValueChange={(next) => onChange(next === defaultValue ? '' : next)}
-        >
-          {!choice.managed && (
-            <DropdownMenuRadioItem value={defaultValue}>Default</DropdownMenuRadioItem>
-          )}
-          {choice.options.map((option) => (
-            <DropdownMenuRadioItem key={option.id} value={option.id}>
-              {option.name}
-              {option.isDefault && (
-                <span className="ml-auto text-xs text-muted-foreground">Default</span>
-              )}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        {failed && !choice.managed && (
-          <p className="px-2 py-1.5 text-xs text-muted-foreground">
-            Could not load models. The default model is used.
+      <DropdownMenuContent align="start" className="agent-picker-menu">
+        <div className="agent-picker-head" role="presentation">
+          <span>{hostId ? 'On this SSH host' : 'On this computer'}</span>
+          <span className="agent-picker-through">through Verdictan</span>
+        </div>
+        {!choices && (
+          <p role="status" className="agent-picker-note">
+            Finding agents…
           </p>
         )}
+        {choices?.map((choice) =>
+          choice.available ? (
+            <DropdownMenuItem
+              key={choice.agent}
+              disabled={choice.agent !== agent && !onAgentChange}
+              onSelect={() => {
+                if (choice.agent === agent) return;
+                if (isAgent(choice.agent)) savePreferredAgent(choice.agent);
+                onAgentChange?.(choice.agent);
+              }}
+            >
+              <AgentIcon agent={choice.agent} />
+              <span className="min-w-0 flex-1 truncate">{choice.name}</span>
+              {choice.version && <span className="agent-picker-version">{choice.version}</span>}
+              {choice.agent === agent ? (
+                <Check aria-label="Selected" className="text-foreground" />
+              ) : (
+                <span className="size-4" aria-hidden="true" />
+              )}
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem
+              key={choice.agent}
+              className="text-muted-foreground"
+              disabled={!choice.installUrl}
+              onSelect={() => window.open(choice.installUrl, '_blank', 'noreferrer')}
+            >
+              <AgentIcon agent={choice.agent} />
+              <span className="min-w-0 flex-1 truncate">{choice.name}</span>
+              <span className="agent-picker-version">Not installed</span>
+              <SquareArrowOutUpRight aria-label="Opens the official page" />
+            </DropdownMenuItem>
+          ),
+        )}
         <DropdownMenuSeparator />
-        <DropdownMenuCheckboxItem
-          checked={usedForNewChats}
-          disabled={usedForNewChats}
-          onSelect={() => void saveForNewChats(agent, chosen, agentName)}
-        >
-          Use for new chats
-        </DropdownMenuCheckboxItem>
-        <DropdownMenuItem onSelect={manageAgents}>
+        <DropdownMenuItem onSelect={() => openSettings('tools')}>
           <Settings2 />
-          Manage agents…
+          Tools…
         </DropdownMenuItem>
+        <p className="agent-picker-note">{restartLine}</p>
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * The models of a chat. Round 11 removes the model choice from the composer: the agent CLI and
+ * the organization policy choose the model. The hook stays for older callers.
+ */
+export function useModelChoice(
+  _api: API,
+  _agent: string,
+  models: ModelOption[],
+  agentName: string,
+): ModelChoice {
+  return modelChoice({ models, agentName });
+}
+
+/** @deprecated The composer has no model choice now. */
+export const fixedModelHint = 'Your organization sets the model.';
+/** @deprecated The composer has no model choice now. */
+export const moreModelsHint = '';
+
+/**
+ * @deprecated Use AgentPicker. The model props are ignored: the chip is the agent picker.
+ * Without `api`, every agent shows as available.
+ */
+export function ModelChip({
+  api,
+  agent,
+  onAgentChange,
+  disabled,
+}: {
+  api?: API;
+  choice?: ModelChoice;
+  value?: string;
+  onChange?: (model: string) => void;
+  disabled?: boolean;
+  failed?: boolean;
+  agent: string;
+  agentName?: string;
+  onAgentChange?: (agent: string) => void;
+}) {
+  return (
+    <AgentPicker
+      api={api || ({} as API)}
+      agent={agent}
+      onAgentChange={onAgentChange}
+      disabled={disabled}
+    />
   );
 }

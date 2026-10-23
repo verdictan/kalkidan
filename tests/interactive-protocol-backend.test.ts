@@ -469,7 +469,10 @@ test('startup failures, output limits, identity violations and request deadlines
       // A missing agent blocks the managed launch. Nothing starts a local CLI instead.
       assert.equal(r.errorCode, 'managed_launch_blocked');
       assert.equal(r.managedSetup, 'agent-setup');
-      assert.match(r.error!, /^Kalkidan runs agents only through managed Verdictan agents\./);
+      assert.match(
+        r.error!,
+        /^Kalkidan runs the agent CLI of this computer through the Verdictan gateway/,
+      );
       assert.equal(f.children.length, 0);
     }
     f.runner.dispose();

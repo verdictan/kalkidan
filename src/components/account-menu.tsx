@@ -1,14 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import {
-  BookOpen,
-  ChevronsUpDown,
-  CircleAlert,
-  ExternalLink,
-  LogIn,
-  LogOut,
-  Settings2,
-  UserRound,
-} from 'lucide-react';
+import { BookOpen, CircleAlert, ExternalLink, LogOut, Settings, UserRound } from 'lucide-react';
 import type { API } from '../api/contracts';
 import { keychainHostsMessage, keychainRefusedCode } from '../domain/verdictan';
 import { accountNames, rejectedSessionText, verdictanErrorMessage } from '../lib/verdictan-labels';
@@ -17,7 +8,6 @@ import { shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { userGuideUrl } from './about-section';
-import { useComputersAttention } from './settings-attention';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 import {
@@ -26,10 +16,8 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
-import { StatusDot } from './ui/status-dot';
 import { showToast } from './ui/toast';
 import { openSettings, SignInSteps, startSignIn, type SignInIntent } from './sign-in-steps';
 import { checkStatusEvent } from './chat-links';
@@ -46,45 +34,12 @@ export function initials(name: string | undefined) {
   return letters.toUpperCase();
 }
 
-/** The avatar. `attention` adds an amber dot: something in Settings needs the user. */
-function Avatar({
-  text,
-  className,
-  attention = false,
-}: {
-  text: string;
-  className?: string;
-  attention?: boolean;
-}) {
+/** The 24px avatar: the initials, or a person icon when nobody is signed in. */
+function Avatar({ text, className }: { text: string; className?: string }) {
   return (
-    <span className={cn('account-menu-avatar', className)} aria-hidden="true">
+    <span className={cn('st-avatar st-avatar-sm', className)} aria-hidden="true">
       {text || <UserRound />}
-      {attention && <span className="account-menu-attention" />}
     </span>
-  );
-}
-
-/**
- * The items that every account menu shows: Settings and help. The menu holds only
- * actions. The settings, also notifications and Computers, are in Settings.
- */
-function AppItems({ attention }: { attention: boolean }) {
-  return (
-    <>
-      <DropdownMenuItem onSelect={() => openSettings(attention ? 'computers' : undefined)}>
-        <Settings2 className="size-4" />
-        Settings…
-        {attention && <StatusDot tone="warning" size="sm" label="Needs attention" />}
-        <DropdownMenuShortcut>{shortcutLabel(['mod'], ',')}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-      <DropdownMenuItem asChild>
-        <a href={userGuideUrl} target="_blank" rel="noreferrer">
-          <BookOpen className="size-4" />
-          Help and feedback
-          <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
-        </a>
-      </DropdownMenuItem>
-    </>
   );
 }
 
@@ -99,17 +54,30 @@ function useMenuOpen() {
   return [open, setOpen] as const;
 }
 
+/** The gear at the end of the account row. It opens Settings (⌘,). */
+function SettingsButton() {
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="st-account-gear"
+      aria-label="Settings"
+      title={`Settings ${shortcutLabel(['mod'], ',')}`}
+      onClick={() => openSettings()}
+    >
+      <Settings />
+    </Button>
+  );
+}
+
 /**
- * The account row in the sidebar footer: one 48px trigger that fills the row, in both states.
- * Signed in, it shows the initials, the name and the organization, and opens the account menu:
- * Settings…, help, and Sign out. Signed out, it shows "Sign in", and the same menu
- * starts with "Sign in". When something in Settings › Computers needs the user, for example an
- * old Claude Code, the avatar and "Settings…" show an amber dot.
+ * The account row in the sidebar footer (SY-B): the avatar and the name, then a gear that opens
+ * Settings. Signed in, the name opens the account menu: the email and the region, Manage
+ * account, Help and feedback, and Sign out. Signed out, the row is one "Sign in" button: one
+ * click starts the sign-in.
  */
 export function AccountMenu({ api }: { api: API }) {
   const { status, supported } = useVerdictanStatus(api);
-  const attention = useComputersAttention(api);
-  const attentionText = attention ? ', something needs your attention' : '';
   const names = accountNames(status);
   const signedIn = status?.phase === 'authenticated';
   const [signingOut, setSigningOut] = useState(false);
@@ -134,7 +102,6 @@ export function AccountMenu({ api }: { api: API }) {
   }
   if (!signedIn) {
     const authorizing = status?.phase === 'authorizing';
-    // An ended or refused session needs a new sign-in. The account is not signed in then.
     const label = supported
       ? authorizing
         ? 'Finish signing in…'
@@ -142,68 +109,45 @@ export function AccountMenu({ api }: { api: API }) {
           ? 'Sign in again'
           : 'Sign in'
       : 'Kalkidan';
-    // The same trigger as when signed in. "Sign in" is the first item of the menu.
     return (
-      <div className="account-menu" data-state="signed-out">
-        <DropdownMenu open={open} onOpenChange={setOpen}>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="account-menu-trigger row-focus"
-              aria-label={
-                (supported ? `${label}, Settings and help` : 'Settings and help') + attentionText
-              }
-            >
-              <Avatar text="" className="account-menu-avatar-empty" attention={attention} />
-              <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">{label}</span>
-              <ChevronsUpDown
-                className="size-4 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            side="top"
-            align="start"
-            // The menu stays inside the sidebar: as wide as the footer row.
-            className="account-menu-content w-[calc(var(--navigation-width)-var(--space-6))]"
+      <div className="account-menu st-account-row" data-state="signed-out">
+        {supported ? (
+          <button
+            type="button"
+            className="st-account-trigger row-focus"
+            onClick={() => startSignIn('login')}
           >
-            {supported && (
-              <>
-                <DropdownMenuItem onSelect={() => startSignIn('login')}>
-                  <LogIn className="size-4" />
-                  {label}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-              </>
-            )}
-            <AppItems attention={attention} />
-          </DropdownMenuContent>
-        </DropdownMenu>
+            <Avatar text="" className="st-avatar-empty" />
+            <span className="st-account-label">{label}</span>
+          </button>
+        ) : (
+          <span className="st-account-trigger">
+            <Avatar text="" className="st-avatar-empty" />
+            <span className="st-account-label">{label}</span>
+          </span>
+        )}
+        <SettingsButton />
       </div>
     );
   }
   const name = names.user || names.email || 'Signed in';
   const avatar = initials(names.user || names.email);
   const region = status?.region ? regionNames[status.region] : '';
-  const subtitle = [names.organization, region].filter(Boolean).join(' · ');
+  const header = [
+    names.email !== name ? names.email : '',
+    [names.organization, region].filter(Boolean).join(' · '),
+  ].filter(Boolean);
   return (
-    <div className="account-menu" data-state="signed-in">
+    <div className="account-menu st-account-row" data-state="signed-in">
       <DropdownMenu open={open} onOpenChange={setOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            className="account-menu-trigger row-focus"
-            aria-label={`Account: ${name}${names.organization ? `, ${names.organization}` : ''}${attentionText}`}
+            className="st-account-trigger row-focus"
+            aria-label={`Account: ${name}${names.organization ? `, ${names.organization}` : ''}`}
           >
-            <Avatar text={avatar} attention={attention} />
-            <span className="min-w-0 flex-1 text-left">
-              <span className="block truncate text-sm leading-4 font-medium">{name}</span>
-              <span className="block truncate text-xs leading-4 text-muted-foreground">
-                {names.organization || 'Verdictan'}
-              </span>
-            </span>
-            <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <Avatar text={avatar} />
+            <span className="st-account-label">{name}</span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
@@ -212,19 +156,18 @@ export function AccountMenu({ api }: { api: API }) {
           // The menu stays inside the sidebar: as wide as the footer row.
           className="account-menu-content w-[calc(var(--navigation-width)-var(--space-6))]"
         >
-          <DropdownMenuLabel className="account-menu-header">
-            <Avatar text={avatar} className="size-8" />
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium text-foreground">{name}</span>
-              {names.email && names.email !== name && (
-                <span className="block truncate text-xs font-normal">{names.email}</span>
-              )}
-              {subtitle && <span className="block truncate text-xs font-normal">{subtitle}</span>}
-            </span>
-          </DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <AppItems attention={attention} />
-          <DropdownMenuSeparator />
+          {header.length > 0 && (
+            <DropdownMenuLabel className="account-menu-header">
+              <span className="min-w-0">
+                {header.map((line) => (
+                  <span key={line} className="block truncate text-xs font-normal">
+                    {line}
+                  </span>
+                ))}
+              </span>
+            </DropdownMenuLabel>
+          )}
+          {header.length > 0 && <DropdownMenuSeparator />}
           {typeof api.verdictanOpenConsole === 'function' && (
             <DropdownMenuItem
               onSelect={() =>
@@ -240,12 +183,21 @@ export function AccountMenu({ api }: { api: API }) {
               <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
             </DropdownMenuItem>
           )}
+          <DropdownMenuItem asChild>
+            <a href={userGuideUrl} target="_blank" rel="noreferrer">
+              <BookOpen className="size-4" />
+              Help and feedback
+              <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
+            </a>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem disabled={signingOut} onSelect={() => void signOut()}>
             <LogOut className="size-4" />
             Sign out
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <SettingsButton />
     </div>
   );
 }
@@ -274,7 +226,7 @@ export function SessionBanner({ api }: { api: API }) {
       setStatus(next);
       setHosts(next.keychainHosts ?? []);
       if (next.phase === 'authenticated' && !next.keychainHosts?.length)
-        showToast('Managed agents are ready. Try again.');
+        showToast('Verdictan is ready. Try again.');
     } catch {
       showToast({ message: 'Kalkidan could not check the status. Try again.', tone: 'error' });
     } finally {

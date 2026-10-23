@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+import { openCodeFolder } from './helpers/navigation';
 
 const tree = (page: Page) => page.getByRole('navigation', { name: 'Projects and repositories' });
 const dialog = (page: Page) => page.getByRole('dialog', { name: 'Fork chat', exact: true });
@@ -129,6 +130,8 @@ async function withChat(
     };
   }, options);
   await page.goto('/');
+  // The tree shows the chats of a repo when the project and the repo are open.
+  await openCodeFolder(page, 'web');
 }
 
 async function chooseComputer(page: Page, name: string) {

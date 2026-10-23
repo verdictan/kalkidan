@@ -1,14 +1,15 @@
 import { useState, type ReactNode } from 'react';
-import { Folder, Loader2 } from 'lucide-react';
-import type { API, ProjectGroup, RemoteHost } from '../types';
+import { Loader2 } from 'lucide-react';
+import type { API, Project, ProjectGroup, RemoteHost, Session } from '../types';
 import type { ProjectPage } from '../domain/workspace-route';
+import { getIdentityOverride, setIdentityOverride, type IdentityColor } from '../domain/identity';
 import { errorMessage } from '../lib/errors';
-import { ProjectTabs, openProjectPage } from './project-tabs';
+import { projectTabs, openProjectPage } from './project-tabs';
 import { requestNewChat } from './new-chat-button';
-import { openProjectUsage } from './project-usage';
+import { ProjectUsageMenuItem } from './project-usage';
 import { projectMenuActions, TreeActionsMenu } from './tree-context-menu';
+import { openProjectSettings } from './settings-dialog';
 import { Button } from './ui/button';
-import { EntityIcon } from './ui/entity-icon';
 import { PageHeader } from './ui/page-header';
 import { showToast } from './ui/toast';
 
@@ -21,24 +22,31 @@ const event = (name: string, detail: object) =>
   window.dispatchEvent(new CustomEvent(name, { detail }));
 
 /**
- * The one header of a project: a 28px folder tile, the title and the project menu, the same on
- * every tab. The title has no counts: the page below shows the code folders and the chats. A remote project shows its SSH host under the title. The ⋯ menu has the same items
- * as the menu of the project row in the sidebar. New chat is not here: on Overview the composer
- * starts a chat, and ⌘N works on every tab.
+ * The one 48px header of a project: the project square, the name, the view switch (Overview,
+ * Tasks, Knowledge) and the project menu, the same on every view. The active view takes the
+ * tint of the project color. A remote project shows its SSH host after the name. A view can
+ * put its own controls in `#project-header-actions`, before the menu.
  */
 function ProjectHeader({
   api,
   group,
+  color,
   host,
+  page,
+  usage,
+  onOpenWindow,
   onRefresh,
 }: {
   api: API;
   group: ProjectGroup;
+  color: IdentityColor;
   host?: RemoteHost;
+  page: ProjectPage;
+  usage?: { sessions: Session[]; repos: Project[] };
+  onOpenWindow?: () => void;
   onRefresh(): Promise<unknown>;
 }) {
   const [reconnecting, setReconnecting] = useState(false);
-  const busy = false;
   const status = host?.status || 'disconnected';
   async function reconnect() {
     if (!host) return;
@@ -55,23 +63,14 @@ function ProjectHeader({
       setReconnecting(false);
     }
   }
-  async function newPage() {
-    try {
-      const doc = await api.docsCreate(group.id, 'Untitled', null);
-      openProjectPage(group.id, 'knowledge', { section: 'pages', docId: doc.id });
-    } catch (error) {
-      showToast({ message: `Could not create the page: ${errorMessage(error)}`, tone: 'error' });
-    }
-  }
   const actions = projectMenuActions({
-    busy,
+    projectName: group.name,
+    onOpenWindow,
     onNewChat: () => requestNewChat({ groupId: group.id }),
-    onNewTask: () => event('kalkidan-new-task', {}),
-    onNewPage: () => void newPage(),
     onAddFolder: () => event('kalkidan-add-code-folder', { groupId: group.id }),
     onRename: () => event('kalkidan-rename-project', { groupId: group.id }),
-    onUsage: () => openProjectUsage(group.id),
     onSettings: () => event('kalkidan-open-project-settings', { groupId: group.id }),
+    onRemove: () => openProjectSettings(group.id, 'danger'),
     reconnect:
       host && status !== 'connected'
         ? { host: host.name, disabled: reconnecting, run: () => void reconnect() }
@@ -80,11 +79,7 @@ function ProjectHeader({
   return (
     <PageHeader
       className="project-header"
-      icon={
-        <EntityIcon>
-          <Folder />
-        </EntityIcon>
-      }
+      mark={{ kind: 'project', color }}
       title={group.name}
       subtitle={
         group.hostId && (
@@ -92,20 +87,7 @@ function ProjectHeader({
             className="project-header-host"
             title={host ? `${host.target}${host.error ? ` · ${host.error}` : ''}` : undefined}
           >
-            <span
-              className={
-                'tree-host-dot' +
-                (status === 'connected'
-                  ? ' host-connected'
-                  : status === 'error'
-                    ? ' host-error'
-                    : '')
-              }
-              aria-hidden="true"
-            />
-            <span className="truncate">
-              SSH · {host?.name || 'Remote host'} · {status}
-            </span>
+            SSH · {host?.name || 'Remote host'} · {status}
             {host && status !== 'connected' && (
               <Button
                 variant="link"
@@ -121,37 +103,82 @@ function ProjectHeader({
           </span>
         )
       }
-      actions={<TreeActionsMenu label="Project actions" size="md" align="end" actions={actions} />}
+      viewsLabel="Project page"
+      views={projectTabs.map((tab) => ({
+        value: tab.page,
+        label: tab.label,
+        hint: tab.label,
+        shortcut: tab.shortcut,
+      }))}
+      view={page}
+      onViewChange={(next) => next !== page && openProjectPage(group.id, next)}
+      actions={
+        <>
+          <div id="project-header-actions" className="project-header-actions" />
+          <TreeActionsMenu
+            label="Project actions"
+            size="sm"
+            align="end"
+            actions={actions}
+            color={{
+              value: color,
+              chosen: !!getIdentityOverride('project', group.name),
+              onChange: (next) => setIdentityOverride('project', group.name, next),
+            }}
+            extra={
+              usage && (
+                <ProjectUsageMenuItem
+                  api={api}
+                  group={group}
+                  sessions={usage.sessions}
+                  repos={usage.repos}
+                />
+              )
+            }
+          />
+        </>
+      }
     />
   );
 }
 
 /**
- * The frame of every project page: one header and one tab bar that stay in the same place on
- * each tab, then the page. Only the page below the tab bar scrolls. The frame has the edges of
- * `.page`.
+ * The frame of every project view: the one header stays in the same place on each view, then
+ * the view. Only the view below the header scrolls.
  */
 export function ProjectFrame({
   api,
   group,
+  color,
   host,
   page,
+  usage,
+  onOpenWindow,
   onRefresh,
   children,
 }: {
   api: API;
   group: ProjectGroup;
+  color: IdentityColor;
   host?: RemoteHost;
   page: ProjectPage;
+  usage?: { sessions: Session[]; repos: Project[] };
+  onOpenWindow?: () => void;
   onRefresh(): Promise<unknown>;
   children: ReactNode;
 }) {
   return (
     <div className="project-frame" data-page={page}>
-      <div className="project-frame-head">
-        <ProjectHeader api={api} group={group} host={host} onRefresh={onRefresh} />
-        <ProjectTabs groupId={group.id} page={page} />
-      </div>
+      <ProjectHeader
+        api={api}
+        group={group}
+        color={color}
+        host={host}
+        page={page}
+        usage={usage}
+        onOpenWindow={onOpenWindow}
+        onRefresh={onRefresh}
+      />
       <div className="project-frame-body">{children}</div>
     </div>
   );

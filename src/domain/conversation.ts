@@ -63,6 +63,8 @@ export interface Session {
   projectId?: string;
   task?: TrackerItem;
   initialPrompt?: string;
+  /** The child runs of this session (Claude Code Task subagents, Codex sub-agents). */
+  subagents?: import('./desktop').SubagentSession[];
 }
 export interface ChatMessage {
   id: string;
@@ -154,6 +156,8 @@ export interface ChatRun {
   sessionReady?: boolean;
   /** The policy results of the refused or escalated requests in this run, oldest first. */
   policies?: PolicyRecord[];
+  /** The subagents that this run started, oldest first. */
+  subagents?: import('./desktop').SubagentSession[];
 }
 export interface AgentQuestion {
   id: string;

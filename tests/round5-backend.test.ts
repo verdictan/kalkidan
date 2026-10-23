@@ -334,10 +334,13 @@ test('closing keywords in a pull request body name the issue', () => {
   assert.equal(closesIssue('Closes #12', { number: undefined }), false);
 });
 
-test('managed agent errors keep a stable code and show plain words', () => {
+test('gateway errors keep a stable code and show plain words', () => {
   const error = new DesktopProtocolError('desktop.runtime_missing');
   assert.equal(error.code, 'desktop.runtime_missing');
-  assert.match(error.message, /^Managed agents are not ready\b.*\[desktop\.runtime_missing\]$/);
+  assert.match(
+    error.message,
+    /^The Verdictan gateway is not ready\b.*\[desktop\.runtime_missing\]$/,
+  );
   assert.equal(managedErrorCode('Error: ' + error.message), 'desktop.runtime_missing');
   assert.equal(managedErrorInfo('desktop.runtime_missing').section, 'computers');
   assert.equal(managedErrorInfo('desktop.auth_expired').section, 'account');
@@ -345,14 +348,17 @@ test('managed agent errors keep a stable code and show plain words', () => {
   assert.equal(managedErrorInfo('desktop.authorization_timeout').section, 'account');
   assert.match(managedErrorText('desktop.authorization_timeout'), /waited 5 minutes/);
   assert.equal(managedErrorInfo('desktop.transport_lost').retry, true);
-  assert.match(managedErrorText('desktop.made_up'), /Check the setup in Settings/);
+  assert.match(
+    managedErrorText('desktop.made_up'),
+    /could not complete this operation\. Try again/,
+  );
   assert.equal(withoutManagedCode(error.message).includes('desktop.'), false);
   const run = { agent: 'codex', error: 'desktop.gateway_failed' } as ChatRun;
   normalizeChatFailure(run);
   assert.equal(run.errorCode, 'desktop.gateway_failed');
   assert.equal(
     run.error,
-    'The connection to managed agents stopped. Try again. [desktop.gateway_failed]',
+    'The connection to the Verdictan gateway stopped. Try again. [desktop.gateway_failed]',
   );
   const busy = { agent: 'codex', error: 'already has an active writer' } as ChatRun;
   normalizeChatFailure(busy);

@@ -16,18 +16,18 @@
   </head>
   <body>
     <!--
-      The launch splash shows before any script loads. The brackets close in from the sides, the
-      brown point lands, then a progress line shows. The 48px mark is at the same place as the
-      mark of the Welcome screen (centered, 104px above the middle of the window), so it does not
-      move when Welcome shows. The app removes the splash (src/lib/splash.ts) when the first page
-      can show. The colors are the theme values: theme.css is not loaded yet.
+      The launch splash (SP-C "Name") shows before any script loads. The mark lands in the
+      center, then steps left while "Kalkidan" shows beside it. The lockup is 20px above the
+      middle of the window. There is no progress bar. The app removes the splash
+      (src/lib/splash.ts) when the first page can show: the lockup lifts 6px and fades, or, on
+      first run, glides into the heading of the tools check. The colors are the theme values:
+      theme.css is not loaded yet.
     -->
     <style>
       #splash {
         position: fixed;
         inset: 0;
         z-index: 100;
-        background: #ffffff;
         color: #171717;
         font-family:
           Inter,
@@ -36,107 +36,154 @@
           -apple-system,
           'Segoe UI',
           sans-serif;
-        transition: opacity 200ms ease-out;
+        -webkit-font-smoothing: antialiased;
         -webkit-app-region: drag;
       }
-      #splash.splash-out {
-        opacity: 0;
-        pointer-events: none;
+      .splash-bg {
+        position: absolute;
+        inset: 0;
+        background: #ffffff;
+        transition: opacity 200ms cubic-bezier(0, 0, 0.2, 1) 40ms;
+      }
+      .splash-lockup {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: calc(50% - 40px);
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        transform-origin: 0 50%;
+        transition:
+          opacity 200ms cubic-bezier(0, 0, 0.2, 1),
+          transform 200ms cubic-bezier(0, 0, 0.2, 1);
       }
       .splash-mark {
-        position: absolute;
-        top: calc(50% - 128px);
-        left: calc(50% - 24px);
-        width: 48px;
-        height: 48px;
+        flex: none;
+        width: 40px;
+        height: 40px;
         overflow: visible;
-      }
-      .splash-mark * {
-        transform-box: fill-box;
-        transform-origin: 50% 50%;
-      }
-      .splash-left {
-        animation: splash-from-left 550ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
-      }
-      .splash-right {
-        animation: splash-from-right 550ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        animation: splash-mark 640ms both;
       }
       .splash-point {
-        animation: splash-pop 380ms cubic-bezier(0.3, 1.5, 0.5, 1) 450ms both;
+        animation: splash-point 280ms both;
       }
-      .splash-bar {
-        position: absolute;
-        top: calc(50% - 56px);
-        left: calc(50% - 60px);
-        width: 120px;
-        height: 2px;
-        border-radius: 2px;
-        background: #e5e5e5;
-        overflow: hidden;
+      .splash-name {
+        font-size: 22px;
+        line-height: 28px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        animation: splash-name 760ms both;
       }
-      .splash-bar i {
-        display: block;
-        height: 100%;
-        background: #171717;
-        transform-origin: left;
-        animation: splash-progress 2.4s cubic-bezier(0.4, 0, 0.2, 1) 200ms both;
+      #splash.splash-out .splash-lockup {
+        opacity: 0;
+        transform: translateY(-6px);
       }
-      @keyframes splash-from-left {
-        from {
-          transform: translateX(-26px);
+      #splash.splash-out .splash-bg,
+      #splash.splash-glide .splash-bg {
+        opacity: 0;
+      }
+      #splash.splash-out,
+      #splash.splash-glide {
+        pointer-events: none;
+      }
+      #splash.splash-glide .splash-bg {
+        transition-delay: 0ms;
+      }
+      #splash.splash-glide .splash-lockup {
+        justify-content: flex-start;
+        transition: transform 320ms cubic-bezier(0.65, 0, 0.35, 1);
+      }
+      /* Opacity in 0-200 ms, then a 48px step to the left at 200-640 ms. */
+      @keyframes splash-mark {
+        0% {
           opacity: 0;
+          transform: translateX(48px);
+          animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+        }
+        31.25% {
+          opacity: 1;
+          transform: translateX(48px);
+          animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+        }
+        100% {
+          opacity: 1;
+          transform: none;
         }
       }
-      @keyframes splash-from-right {
-        from {
-          transform: translateX(26px);
+      @keyframes splash-point {
+        0% {
           opacity: 0;
+          animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+        }
+        28.5% {
+          opacity: 0;
+          animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+        }
+        100% {
+          opacity: 1;
         }
       }
-      @keyframes splash-pop {
-        from {
-          transform: scale(0);
+      /* The name shows from the left at 320-760 ms. */
+      @keyframes splash-name {
+        0% {
+          opacity: 0;
+          clip-path: inset(0 100% 0 0);
+          transform: translateX(-12px);
+        }
+        42.1% {
+          opacity: 0;
+          clip-path: inset(0 100% 0 0);
+          transform: translateX(-12px);
+          animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+        }
+        100% {
+          opacity: 1;
+          clip-path: inset(0 0 0 0);
+          transform: none;
         }
       }
-      @keyframes splash-progress {
-        from {
-          transform: scaleX(0);
-        }
-        to {
-          transform: scaleX(0.9);
-        }
-      }
+      /* The finished lockup, still. Only a 150 ms cross-fade to the first screen. */
       @media (prefers-reduced-motion: reduce) {
         #splash *,
         #splash {
           animation: none !important;
-          transition: none !important;
+        }
+        .splash-bg,
+        .splash-lockup,
+        #splash.splash-out .splash-lockup {
+          transform: none !important;
+          transition: opacity 150ms linear !important;
         }
       }
     </style>
     <div id="splash" aria-hidden="true">
-      <svg class="splash-mark" viewBox="0 0 100 100">
-        <path
-          class="splash-left"
-          d="M34 18H20V82H34"
-          fill="none"
-          stroke="#171717"
-          stroke-width="9"
-          stroke-linejoin="round"
-          stroke-linecap="round"
-        />
-        <path
-          class="splash-right"
-          d="M66 18H80V82H66"
-          fill="none"
-          stroke="#171717"
-          stroke-width="9"
-          stroke-linejoin="round"
-          stroke-linecap="round"
-        />
-        <circle class="splash-point" cx="50" cy="50" r="9" fill="#9a4600" />
-      </svg>
-      <div class="splash-bar"><i></i></div>
+      <div class="splash-bg"></div>
+      <div class="splash-lockup">
+        <svg class="splash-mark" viewBox="0 0 100 100">
+          <path
+            d="M34 18H20V82H34"
+            fill="none"
+            stroke="#171717"
+            stroke-width="9"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+          <path
+            d="M66 18H80V82H66"
+            fill="none"
+            stroke="#171717"
+            stroke-width="9"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+          <circle class="splash-point" cx="50" cy="50" r="9" fill="#9a4600" />
+        </svg>
+        <div class="splash-name">Kalkidan</div>
+      </div>
     </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

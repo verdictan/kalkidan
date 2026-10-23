@@ -1,8 +1,9 @@
 import {
   StatusIcon,
   TaskCheckbox,
+  TaskLiveLine,
   TaskPullRequest,
-  TaskStateLine,
+  TaskRepo,
   isDoneStatus,
   TaskStartButton,
   chatsActivity,
@@ -12,11 +13,11 @@ import {
   taskFolderName,
   taskKeyUp,
   taskKeys,
-  taskPullRequest,
   trackerColumns,
+  type TaskIdentity,
   type TaskWorkProps,
 } from './tracker-list';
-import { Folder, PanelRight, Play, SquareCheck } from 'lucide-react';
+import { Check, ChevronDown, PanelRight, Play, SquareCheck } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -32,7 +33,7 @@ import { cn } from '../lib/utils';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Count } from './ui/count';
-import { EmptyState } from './ui/empty-state';
+import { IdentityMark } from './ui/identity-mark';
 import { menuShortcutClass } from './ui/menu-styles';
 import {
   DropdownMenu,
@@ -48,26 +49,41 @@ export function itemUrl(text: string) {
   return /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(issues|pull)\/\d+\/?$/i.test(text.trim());
 }
 
+/** A code folder that a new task can use. */
+export interface TaskFolder {
+  id: string;
+  name: string;
+}
+
 /**
- * New task: a card-shaped title field at the top of the first column. Enter adds the task,
- * ⌘Enter adds it and starts a chat, Escape cancels. A pasted issue or pull request URL adds that
- * item to the board.
+ * New task: a card-shaped title field at the top of the first column, with a repo chip under
+ * it. The chip starts on the repo used last. Enter adds the task, ⌘Enter adds it and starts a
+ * chat, Escape cancels. A pasted issue or pull request URL adds that item to the board.
  */
 function InlineTaskField({
-  folder,
-  canStart,
+  folders,
+  folderId,
+  onFolderChange,
+  identity,
+  startLabel,
   onCreate,
   onCancel,
 }: {
-  /** The code folder where a started task works, for the line under the title. */
-  folder?: string;
-  canStart: boolean;
+  folders: TaskFolder[];
+  /** The code folder of the new task. */
+  folderId?: string;
+  onFolderChange?: (id: string) => void;
+  identity?: TaskIdentity;
+  /** "start with Codex" for the key hint, or undefined when a chat cannot start. */
+  startLabel?: string;
   onCreate: (title: string, start: boolean) => Promise<boolean>;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
+  const folder = folders.find((item) => item.id === folderId);
   function submit(start: boolean) {
     const value = title.trim();
     if (!value || busy) return;
@@ -80,8 +96,17 @@ function InlineTaskField({
       }
     });
   }
+  const color = folder && identity?.repoColor(folder.name);
   return (
-    <div className="tracker-quick-add" data-busy={busy || undefined}>
+    <div
+      className="tracker-quick-add"
+      data-busy={busy || undefined}
+      onBlur={(event) => {
+        // The field closes when the focus leaves the card with no title. The repo menu keeps it.
+        if (event.currentTarget.contains(event.relatedTarget as Node) || menuOpen) return;
+        if (!title.trim() && !busy) onCancel();
+      }}
+    >
       <textarea
         ref={field}
         autoFocus
@@ -94,7 +119,6 @@ function InlineTaskField({
         value={title}
         readOnly={busy}
         onChange={(event) => setTitle(event.target.value.replace(/\n/g, ' '))}
-        onBlur={() => !title.trim() && !busy && onCancel()}
         onKeyDown={(event) => {
           event.stopPropagation();
           if (event.key === 'Escape') {
@@ -107,14 +131,46 @@ function InlineTaskField({
         }}
       />
       <div className="tracker-quick-meta">
-        {folder && (
-          <span className="tracker-quick-folder">
-            <Folder aria-hidden="true" />
-            <span className="truncate">{folder}</span>
-          </span>
+        {folders.length > 0 && (
+          <DropdownMenu
+            open={menuOpen}
+            onOpenChange={(open) => {
+              setMenuOpen(open);
+              if (!open) window.setTimeout(() => field.current?.focus(), 0);
+            }}
+          >
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="tracker-quick-folder"
+                aria-label={`Repo: ${folder?.name || 'Choose a repo'}`}
+                disabled={busy}
+              >
+                {color && <IdentityMark kind="repo" color={color} slot={false} />}
+                <span className="truncate">{folder?.name || 'Choose a repo'}</span>
+                <ChevronDown aria-hidden="true" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {folders.map((item) => {
+                const itemColor = identity?.repoColor(item.name);
+                return (
+                  <DropdownMenuItem key={item.id} onSelect={() => onFolderChange?.(item.id)}>
+                    {itemColor ? (
+                      <IdentityMark kind="repo" color={itemColor} />
+                    ) : (
+                      <span className="size-4" />
+                    )}
+                    <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                    {item.id === folderId && <Check className="size-4" aria-label="Chosen" />}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         <kbd className="tracker-quick-keys">
-          {busy ? 'Adding…' : canStart ? '⏎ add · ⌘⏎ start' : '⏎ add'}
+          {busy ? 'Adding…' : startLabel ? `⏎ add · ⌘⏎ ${startLabel}` : '⏎ add'}
         </kbd>
       </div>
     </div>
@@ -169,15 +225,15 @@ export function TaskCard({
       role="listitem"
       {...props}
       className={cn(
-        // Borderless: the fill marks the card. A selected card is white with a brown ring. The
-        // focus ring is inset, so the scrolling column does not clip it.
-        'tracker-task gap-0 border-transparent bg-secondary px-3 py-2.5 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))]',
-        'data-[selected]:border-primary data-[selected]:bg-background data-[selected]:shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_14%,transparent)]',
+        // Borderless: the grey fill marks the card, and hover makes it darker. A selected card
+        // is white with a brown ring. The focus ring is inset, so the column does not clip it.
+        'tracker-task gap-0 border border-transparent bg-[var(--fill)] p-3 hover:bg-[var(--fill-strong)]',
+        'data-[selected]:border-primary data-[selected]:bg-background data-[selected]:shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_12%,transparent)]',
         'has-[.tracker-task-title:focus-visible]:shadow-[var(--focus-ring-inset)]',
         className,
       )}
     >
-      <CardContent className="flex flex-col items-stretch gap-0.5 p-0">
+      <CardContent className="flex flex-col items-stretch gap-1 p-0">
         {top}
         <Button
           variant="bare"
@@ -244,8 +300,12 @@ export function TrackerBoard({
   onStatus,
   adding,
   onAddingChange,
-  addFolder,
-  usage,
+  folders = [],
+  addFolderId,
+  onAddFolderChange,
+  startLabel,
+  folderOf = taskFolderName,
+  dimmed = false,
   ...work
 }: {
   board: TrackerBoard;
@@ -262,10 +322,17 @@ export function TrackerBoard({
   /** The column that shows the New task field, or null. */
   adding?: string | null;
   onAddingChange?: (column: string | null) => void;
-  /** The code folder of a new task, for the line under the New task field. */
-  addFolder?: string;
-  /** The usage text of each task, by task ID: "19 requests · $6.10". */
-  usage?: Record<string, { text: string }>;
+  /** The code folders of the project, for the repo chip of the New task field. */
+  folders?: TaskFolder[];
+  /** The code folder of a new task: the repo used last. */
+  addFolderId?: string;
+  onAddFolderChange?: (id: string) => void;
+  /** "start with Codex": the ⌘⏎ hint of the New task field. */
+  startLabel?: string;
+  /** The code folder name of a card. Drafts keep the repo that the user chose when adding. */
+  folderOf?: (item: TrackerItem) => string;
+  /** No task matches the search: the columns stay, dimmed. */
+  dimmed?: boolean;
 } & TaskWorkProps) {
   const [dragged, setDragged] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
@@ -337,6 +404,7 @@ export function TrackerBoard({
       // Up to four columns share the width. More columns keep 224 to 360px and scroll.
       data-many={columns.length > 4 || undefined}
       data-selecting={selecting || undefined}
+      data-dimmed={dimmed || undefined}
       role="region"
       aria-label="Tracker board"
       aria-busy={busy}
@@ -385,16 +453,14 @@ export function TrackerBoard({
             >
               {addingHere && (
                 <InlineTaskField
-                  folder={addFolder}
-                  canStart={!!work.onStart}
+                  folders={folders}
+                  folderId={addFolderId}
+                  onFolderChange={onAddFolderChange}
+                  identity={work.identity}
+                  startLabel={work.onStart ? startLabel : undefined}
                   onCancel={() => onAddingChange?.(null)}
                   onCreate={(title, start) => onCreate(column.id, title, start)}
                 />
-              )}
-              {!tasks.length && !addingHere && (
-                <EmptyState compact className="tracker-column-empty">
-                  No tasks.
-                </EmptyState>
               )}
               {tasks.map((item) => {
                 const chats = linkedChats(sessions, item.id);
@@ -403,12 +469,11 @@ export function TrackerBoard({
                   setAnnouncement(`Moving ${item.title} to ${name}`);
                   onStatus(item, status);
                 };
-                const folder = taskFolderName(item);
+                const folder = folderOf(item);
                 const done = isDoneStatus(
                   options.find((option) => option.id === item.statusId)?.name || '',
                 );
                 const working = !!chatsActivity(chats, work.activity);
-                const usageText = usage?.[item.id]?.text;
                 return (
                   // The title button is the one focus stop of the card. A pointer click on the
                   // card body also opens the task. Shift or ⌘ with a click selects.
@@ -457,12 +522,12 @@ export function TrackerBoard({
                           item={item}
                           selection={selection}
                           tabIndex={-1}
-                          className="absolute top-2.5 right-2.5"
+                          className="absolute top-3 right-3"
                         />
                       )
                     }
                     titleProps={{
-                      className: selecting ? 'pr-6' : undefined,
+                      className: selected ? 'pr-6' : undefined,
                       tabIndex: item.id === current ? 0 : -1,
                       'aria-keyshortcuts':
                         [work.onStart && !done && 'S', selection && 'Space', 'Shift+F10']
@@ -474,20 +539,17 @@ export function TrackerBoard({
                       },
                     }}
                   >
-                    {(folder || !!taskPullRequest(chats) || !!usageText) && (
-                      <span className="tracker-task-meta">
-                        {folder && <span className="truncate">{folder}</span>}
-                        <TaskPullRequest chats={chats} tabIndex={-1} short separator={!!folder} />
-                        {usageText && (
-                          <span className="tracker-task-usage">
-                            {(folder || chats.some((s) => s.organization?.pullRequest)) && (
-                              <span aria-hidden="true">·</span>
-                            )}
-                            {usageText}
-                          </span>
-                        )}
-                      </span>
-                    )}
+                    {/* The meta line always shows, so cards of one kind have one height. */}
+                    <span className="tracker-task-meta">
+                      {folder && <TaskRepo name={folder} identity={work.identity} />}
+                      {/* The pull request shows also after its chat is archived. */}
+                      <TaskPullRequest
+                        chats={sessions.filter((s) => s.organization?.taskId === item.id)}
+                        tabIndex={-1}
+                        short
+                        separator={!!folder}
+                      />
+                    </span>
                     {/* The card menu opens on a right click or Shift+F10. It has no button. */}
                     <DropdownMenu
                       open={menuId === item.id}
@@ -560,10 +622,13 @@ export function TrackerBoard({
                         />
                       </span>
                     )}
-                    <TaskStateLine
+                    <TaskLiveLine
                       chats={chats}
                       activity={work.activity}
+                      live={work.live}
+                      identity={work.identity}
                       onOpenChat={work.onOpenChat}
+                      onAllow={work.onAllow}
                       starting={work.startingId === item.id}
                       tabIndex={-1}
                     />

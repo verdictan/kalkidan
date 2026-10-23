@@ -2,16 +2,21 @@ import { createPortal } from 'react-dom';
 import { SessionMenu, sendSessionCommand } from './session-menu';
 import { viewArchivedSessions } from './session-browser';
 import { sessionAPI } from '../lib/remote-api';
-import { useEffect, useRef, useState } from 'react';
-import { ChevronRight, GitFork, NotebookPen, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { GitFork, NotebookPen } from 'lucide-react';
 import { pathBasename } from '../lib/platform';
 import { sessionRepo } from '../lib/session-repository';
 import { trackerConnection } from '../domain/tracker';
 import type { ChatLink } from '../domain/chat-fork';
-import { Conversation, type ConversationDraft } from './conversation';
+import {
+  Conversation,
+  type ChatIdentity,
+  type ConversationDraft,
+  type WaitingApproval,
+} from './conversation';
+import { IdentityToken } from './ui/identity-mark';
+import { useWorkspaceIdentity } from '../hooks/use-workspace-identity';
 import type { MentionChat } from '../lib/mention-sections';
-import { Button } from './ui/button';
-import { Hint } from './hint';
 import { showToast } from './ui/toast';
 import { agentLabel, isAgent } from '../config/agents';
 import type { SessionActivity, SessionActivityState } from './activity-dot';
@@ -111,16 +116,21 @@ export function AgentWorkspace({
       ...initialTabs.filter((tab) => !previous.some((item) => keyOf(item) === keyOf(tab))),
     ]);
   }, [initialTabs]);
-  const [sideKey, setSideKey] = useState<string | null>(null);
-  // A new side chat takes the focus, after the menu that opened it gives the focus back.
-  useEffect(() => {
-    if (!sideKey) return;
-    const timer = window.setTimeout(() =>
-      document.querySelector<HTMLTextAreaElement>('.agent-pane[data-side] textarea')?.focus(),
-    );
-    return () => window.clearTimeout(timer);
-  }, [sideKey]);
   const [running, setRunning] = useState<Record<string, SessionActivityState | null>>({});
+  // The approval that each chat waits for, for Overview, search and the tree.
+  const [approvals, setApprovals] = useState<Record<string, WaitingApproval | undefined>>({});
+  // What each running chat does now, for the live line on task cards.
+  const [details, setDetails] = useState<Record<string, string | undefined>>({});
+  // The same sessions as the tree (saved chats and open drafts), so the colors match.
+  const identitySessions = [
+    ...tabs.filter(
+      (tab) =>
+        tab.id.startsWith('draft-') &&
+        !sessions.some((session) => session.agent === tab.agent && session.id === tab.id),
+    ),
+    ...sessions,
+  ];
+  const identity = useWorkspaceIdentity(projectGroups, projects, identitySessions);
   const [created, setCreated] = useState<Record<string, { id: string; title: string }>>({});
   // Keys in the order the user viewed them, most recent first.
   const [recent, setRecent] = useState<string[]>([]);
@@ -145,7 +155,27 @@ export function AgentWorkspace({
     if (!hostAPIs.current.has(key)) hostAPIs.current.set(key, sessionAPI(api, session));
     return hostAPIs.current.get(key)!;
   }
-  const callbacks = useRef(new Map<string, (activity: SessionActivityState | null) => void>());
+  const callbacks = useRef(
+    new Map<
+      string,
+      (activity: SessionActivityState | null, approval?: WaitingApproval, detail?: string) => void
+    >(),
+  );
+  /** The identity colors of a chat: its repo, the other repos of the project and the chat. */
+  function chatIdentity(
+    tab: Session,
+    repository: Project | undefined,
+    tabGroup: ProjectGroup | undefined,
+  ): ChatIdentity {
+    const resolved = created[keyOf(tab)]?.id || tab.id;
+    return {
+      session: identity.session({ agent: tab.agent, id: resolved }),
+      ...(repository ? { repo: { name: repository.name, color: identity.repo(repository) } } : {}),
+      repos: Object.fromEntries(
+        (tabGroup?.repoIds || []).map((id) => [id, identity.repo({ id })] as const),
+      ),
+    };
+  }
   const selectedTab =
     tabs.find((tab) => keyOf(tab) === keyOf(selected)) ||
     tabs.find((tab) => tab.agent === selected.agent && created[keyOf(tab)]?.id === selected.id) ||
@@ -163,10 +193,7 @@ export function AgentWorkspace({
       .map(keyOf)
       .filter(
         (key) =>
-          key === selectedKey ||
-          key === sideKey ||
-          !!running[key] ||
-          recent.slice(0, mountedLimit).includes(key),
+          key === selectedKey || !!running[key] || recent.slice(0, mountedLimit).includes(key),
       ),
   );
   for (const tab of tabs) {
@@ -183,10 +210,7 @@ export function AgentWorkspace({
   // running in the background and stays in the list.
   const closeRef = useRef<(key: string) => void>(() => {});
   closeRef.current = (key: string) => {
-    if (!running[key]) {
-      setTabs((previous) => previous.filter((t) => keyOf(t) !== key));
-      if (sideKey === key) setSideKey(null);
-    }
+    if (!running[key]) setTabs((previous) => previous.filter((t) => keyOf(t) !== key));
     if (key === selectedKey && visible) onClose();
   };
   useEffect(() => {
@@ -223,17 +247,48 @@ export function AgentWorkspace({
       const state = running[keyOf(tab)];
       if (!state) continue;
       const session = liveSession(tab);
-      activity.push({
+      const entry: SessionActivity & { detail?: string } = {
         agent: session.agent,
         id: created[keyOf(tab)]?.id || session.id,
         projectId: session.projectId,
         cwd: session.cwd,
         hostId: session.hostId,
         state,
-      });
+        ...(state === 'approval' && approvals[keyOf(tab)]
+          ? { approval: approvals[keyOf(tab)] }
+          : {}),
+      };
+      if (details[keyOf(tab)]) entry.detail = details[keyOf(tab)];
+      activity.push(entry);
     }
     reportActivity.current?.(activity);
-  }, [running, tabs, created]);
+  }, [running, approvals, details, tabs, created]);
+  // The crumb starts on the left edge of the chat column (CH-1), also when the pane is open.
+  const heading = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const crumb = heading.current;
+    if (!visible || !crumb) return;
+    const messages = () =>
+      document.querySelector<HTMLElement>('.agent-pane:not([hidden]) .conversation-messages');
+    const align = () => {
+      const column = messages();
+      const slot = crumb.parentElement;
+      if (!column || !slot) return;
+      const left =
+        column.getBoundingClientRect().left + parseFloat(getComputedStyle(column).paddingLeft);
+      crumb.style.paddingLeft = `${Math.max(0, Math.round(left - slot.getBoundingClientRect().left))}px`;
+    };
+    align();
+    const observer = new ResizeObserver(align);
+    const column = messages();
+    if (column) observer.observe(column);
+    if (crumb.parentElement) observer.observe(crumb.parentElement);
+    window.addEventListener('resize', align);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', align);
+    };
+  }, [visible, selectedKey]);
   const live = liveSession(selectedTab);
   const forkedFrom = live.organization?.forkedFrom || live.forkOf;
   const forks = live.organization?.forks || [];
@@ -273,7 +328,6 @@ export function AgentWorkspace({
     drafts.current.delete(key);
     if (draft) drafts.current.set(keyOf(next), draft);
     setTabs((previous) => previous.map((t) => (keyOf(t) === key ? next : t)));
-    if (sideKey === key) setSideKey(keyOf(next));
     onDraft(next);
     if (key === selectedKey) onSelect(next);
   }
@@ -300,7 +354,6 @@ export function AgentWorkspace({
     };
     setTabs((previous) => [...previous, draft]);
     onDraft(draft);
-    setSideKey(null);
     onSelect(draft);
   }
   async function branch(fork: boolean, worktree?: string) {
@@ -317,17 +370,15 @@ export function AgentWorkspace({
       cwd: repo.path,
       hostId: repo.hostId,
       agent: live.agent,
-      title: fork ? 'Fork of ' + titleOf(live) : 'New side chat',
+      title: fork ? 'Fork of ' + titleOf(live) : `New ${agentLabel(live.agent)} chat`,
       updatedAt: timestamp(),
       forkFrom: fork ? resolvedId || live.id : undefined,
     };
     setTabs((previous) => [...previous, draft]);
     onDraft(draft);
     onComplete();
-    if (fork) {
-      setSideKey(null);
-      onSelect(draft);
-    } else setSideKey(keyOf(draft));
+    // The side chat is removed (round 11): a branch opens as a new chat.
+    onSelect(draft);
   }
   return (
     <section className="agent-workspace" aria-label="Chats" hidden={!visible}>
@@ -363,55 +414,67 @@ export function AgentWorkspace({
       {visible &&
         document.getElementById('conversation-titlebar-heading') &&
         createPortal(
-          <div className="conversation-heading">
+          <div className="conversation-heading" ref={heading}>
             <nav className="conversation-toolbar conversation-trail" aria-label="Breadcrumb">
-              {group && onOpenProject && (
+              {/* Project / repo / chat, each with its identity mark (R2, CH-B). */}
+              {group && (
                 <>
                   <button
                     type="button"
-                    className="topbar-crumb"
+                    className="conversation-crumb"
                     data-middle
                     aria-label={`${group.name} project`}
                     title={group.name}
-                    onClick={() => onOpenProject(group)}
+                    onClick={() => onOpenProject?.(group)}
                   >
-                    {group.name}
+                    <IdentityToken
+                      kind="project"
+                      color={identity.project(group)}
+                      name={group.name}
+                    />
                   </button>
-                  <ChevronRight
-                    aria-hidden="true"
-                    className="size-3 shrink-0 text-muted-foreground"
-                  />
+                  <span className="conversation-crumb-slash" data-middle aria-hidden="true">
+                    /
+                  </span>
                 </>
               )}
-              {/* The composer of a new chat shows the code folder. In a project, the trail
-                  shows the project, not the folder. */}
-              {!(group && onOpenProject) && (
-                <>
-                  <button
-                    type="button"
-                    data-middle
-                    className="conversation-breadcrumb-repo"
-                    aria-label={`Back to ${repositoryName}`}
-                    title={`Back to ${repositoryName}`}
-                    onClick={() => {
-                      if (repository && onOpenRepository) onOpenRepository(repository);
-                      else onClose();
-                    }}
-                  >
-                    {repositoryName}
-                  </button>
-                  <ChevronRight
-                    aria-hidden="true"
-                    className="size-3 shrink-0 text-muted-foreground"
+              {repository ? (
+                <button
+                  type="button"
+                  className="conversation-crumb"
+                  data-optional
+                  aria-label={group ? `${repositoryName} code folder` : `Back to ${repositoryName}`}
+                  title={repositoryName}
+                  onClick={() => {
+                    if (group && onOpenProject) onOpenProject(group);
+                    else if (onOpenRepository) onOpenRepository(repository);
+                    else onClose();
+                  }}
+                >
+                  <IdentityToken
+                    kind="repo"
+                    color={identity.repo(repository)}
+                    name={repositoryName}
                   />
-                </>
+                </button>
+              ) : (
+                <span className="conversation-crumb" data-optional>
+                  {repositoryName}
+                </span>
               )}
+              <span className="conversation-crumb-slash" data-optional aria-hidden="true">
+                /
+              </span>
               <span
                 className="conversation-toolbar-title"
                 title={titleOf(live)}
                 aria-current="page"
               >
-                {titleOf(live)}
+                <IdentityToken
+                  kind="session"
+                  color={identity.session({ agent: live.agent, id: resolvedId || live.id })}
+                  name={titleOf(live)}
+                />
               </span>
               {live.organization?.notes && (
                 <button
@@ -456,9 +519,7 @@ export function AgentWorkspace({
         )}
       <div className="agent-stage">
         <div className="agent-stage-body">
-          <div
-            className={'agent-panes' + (sideKey && sideKey !== selectedKey ? ' has-side-chat' : '')}
-          >
+          <div className="agent-panes">
             {tabs.map((tab) => {
               const key = keyOf(tab);
               if (!mounted.has(key)) return null;
@@ -470,46 +531,22 @@ export function AgentWorkspace({
               const resumed = evicted.current.has(key) && created[key];
               const session = liveSession(tab);
               if (!callbacks.current.has(key))
-                callbacks.current.set(key, (activity) =>
+                callbacks.current.set(key, (activity, approval, detail) => {
+                  setDetails((previous) =>
+                    previous[key] === detail ? previous : { ...previous, [key]: detail },
+                  );
                   setRunning((previous) =>
                     previous[key] === activity ? previous : { ...previous, [key]: activity },
-                  ),
-                );
+                  );
+                  setApprovals((previous) =>
+                    previous[key]?.title === approval?.title &&
+                    previous[key]?.detail === approval?.detail
+                      ? previous
+                      : { ...previous, [key]: approval },
+                  );
+                });
               return (
-                <div
-                  className="agent-pane"
-                  key={key}
-                  data-side={key === sideKey || undefined}
-                  hidden={key !== selectedKey && key !== sideKey}
-                >
-                  {key === sideKey && (
-                    <div
-                      className="tool-toolbar side-chat-header"
-                      role="group"
-                      aria-label="Side chat"
-                    >
-                      <span className="side-chat-title">
-                        {/^New( .*)? (session|chat)$/.test(titleOf(session))
-                          ? 'New chat'
-                          : titleOf(session)}
-                      </span>
-                      <span className="side-chat-agent">{agentLabel(session.agent)}</span>
-                      <Hint
-                        label={running[key] ? 'Wait for the response' : 'Close side chat'}
-                        disabled={!!running[key]}
-                      >
-                        <Button
-                          size="icon-sm"
-                          variant="ghost"
-                          aria-label="Close side chat"
-                          disabled={!!running[key]}
-                          onClick={() => setSideKey(null)}
-                        >
-                          <X className="size-3.5" />
-                        </Button>
-                      </Hint>
-                    </div>
-                  )}
+                <div className="agent-pane" key={key} hidden={key !== selectedKey}>
                   <Conversation
                     api={forSession(tab)}
                     hostName={hosts.find((host) => host.id === session.hostId)?.name}
@@ -523,6 +560,7 @@ export function AgentWorkspace({
                         : []
                     }
                     repositoryId={tabRepository?.id}
+                    identity={chatIdentity(tab, tabRepository, tabGroup)}
                     session={
                       resumed
                         ? { ...session, id: resumed.id, projectId: undefined, forkFrom: undefined }
@@ -553,7 +591,7 @@ export function AgentWorkspace({
                       onCreated?.(tab, id, title);
                     }}
                     titlebarVisible={key === selectedKey}
-                    open={visible && (key === selectedKey || key === sideKey)}
+                    open={visible && key === selectedKey}
                     onComplete={onComplete}
                     onActivityChange={callbacks.current.get(key)!}
                   />

@@ -99,7 +99,7 @@ export function runtimeCompatibility(version: unknown, now = Date.now()): Runtim
     status: 'broken',
     replacement: result.replacement ?? broken.fixedIn,
     message:
-      `Verdictan runtime ${result.version} cannot start managed gateways. Update the runtime to ${recommendedRuntime()} or later.` +
+      `Verdictan runtime ${result.version} cannot start the Verdictan gateway. Update the runtime to ${recommendedRuntime()} or later.` +
       (result.endOfSupport ? ` Support stops on ${result.endOfSupport}.` : ''),
   };
 }
@@ -129,7 +129,7 @@ function windowCompatibility(version: unknown, now: number): RuntimeCompatibilit
         status: 'unsupported',
         ...detail,
         replacement: entry.replacement,
-        message: `Support for Verdictan runtime ${value} stopped on ${entry.endOfSupport}. Update the runtime to ${entry.replacement} or later in Settings › Computers.`,
+        message: `Support for Verdictan runtime ${value} stopped on ${entry.endOfSupport}. Kalkidan updates the runtime to ${entry.replacement} or later by itself.`,
       };
     return {
       status: 'deprecated',
@@ -142,7 +142,7 @@ function windowCompatibility(version: unknown, now: number): RuntimeCompatibilit
     status: 'unsupported',
     version: value,
     minimum,
-    message: `Verdictan runtime ${value} is older than ${minimum}, the oldest version that Kalkidan supports. Update the runtime in Settings › Computers.`,
+    message: `Verdictan runtime ${value} is older than ${minimum}, the oldest version that Kalkidan supports. Kalkidan updates the runtime by itself.`,
   };
 }
 
@@ -153,7 +153,7 @@ export function protocolSupported(min: number, max: number) {
 }
 
 /** The Settings text when the runtime is too old to run the Kalkidan setup. */
-export const runtimeSetupNotice = `This Verdictan runtime cannot finish the Kalkidan setup. The setup needs runtime ${supportWindow.runtime.setupMinimum} or later. Update the runtime in Settings › Computers. Then select Refresh in Settings › Computers › Details.`;
+export const runtimeSetupNotice = `This Verdictan runtime cannot finish the Kalkidan setup. The setup needs runtime ${supportWindow.runtime.setupMinimum} or later. Kalkidan updates the runtime by itself. Then try again.`;
 
 /** The known-broken entry of a runtime version, or undefined. A prerelease counts by its core. */
 export function knownBrokenRuntime(version: unknown) {

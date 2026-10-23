@@ -97,9 +97,9 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           'fixed top-[50%] left-[50%] z-[var(--z-dialog)] grid max-h-[min(80vh,calc(100dvh-2rem))] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] rounded-xl bg-popover text-popover-foreground shadow-lg duration-[var(--motion-base)] outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
-          layout === 'simple' && 'gap-4 overflow-y-auto px-6 pt-5 pb-6',
+          layout === 'simple' && 'gap-4 overflow-y-auto p-6',
           layout === 'scroll' &&
-            'grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 [&>[data-slot=dialog-header]]:px-6 [&>[data-slot=dialog-header]]:pt-5 [&>[data-slot=dialog-header]]:pb-3 [&>[data-slot=dialog-footer]]:px-6 [&>[data-slot=dialog-footer]]:pt-3 [&>[data-slot=dialog-footer]]:pb-5',
+            'grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden p-0 [&>[data-slot=dialog-header]]:px-6 [&>[data-slot=dialog-header]]:pt-6 [&>[data-slot=dialog-header]]:pb-3 [&>[data-slot=dialog-footer]]:px-6 [&>[data-slot=dialog-footer]]:pt-3 [&>[data-slot=dialog-footer]]:pb-6',
           size === 'sm' && 'sm:max-w-[var(--dialog-sm)]',
           size === 'md' && 'sm:max-w-[var(--dialog-md)]',
           size === 'lg' && 'sm:max-w-[var(--dialog-lg)]',
@@ -142,7 +142,7 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-5 right-6 inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-[var(--surface-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="absolute top-4 right-4 inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground transition-colors hover:bg-[var(--fill)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[var(--focus-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <span className="sr-only">Close</span>

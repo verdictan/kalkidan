@@ -73,8 +73,13 @@ test('notifications and a long draft do not push the composer outside the window
   await page.setViewportSize({ width: 980, height: 680 });
   await page.goto('/');
   await openSidebar(page);
-  await openCodeFolder(page);
-  await page.getByRole('button', { name: 'Repository actions', exact: true }).click();
+  await openCodeFolder(page, 'atlas-web');
+  // Edit code folder is in the right-click menu of the repo row.
+  await page
+    .locator('.tree-row[data-kind="repo"]')
+    .filter({ has: page.locator('.tree-label', { hasText: /^atlas-web$/ }) })
+    .locator('.tree-row-button')
+    .click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Edit code folder…', exact: true }).click();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Code folder updated.' })).toBeVisible();
@@ -85,24 +90,15 @@ test('notifications and a long draft do not push the composer outside the window
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({
     ratio: 1,
   });
-  const welcome = page.getByRole('heading', { name: 'What are we working on?', exact: true });
+  // The composer stays inside the chat column.
   expect(
-    await welcome.evaluate(
-      (el) =>
-        el.getBoundingClientRect().top >=
-        el.closest('.conversation-messages')!.getBoundingClientRect().top,
-    ),
-  ).toBe(true);
-  // The welcome title stays above the composer.
-  expect(
-    await welcome.evaluate(
-      (el) =>
-        el.getBoundingClientRect().bottom + 16 <=
-        el
-          .closest('.conversation-panel')!
-          .querySelector('.conversation-composer')!
-          .getBoundingClientRect().top,
-    ),
+    await page
+      .getByLabel('Message agent')
+      .evaluate(
+        (el) =>
+          el.closest('.conversation-composer')!.getBoundingClientRect().bottom <=
+          el.closest('.conversation-panel')!.getBoundingClientRect().bottom + 1,
+      ),
   ).toBe(true);
   expect(
     await page
@@ -122,16 +118,25 @@ test('the title bar keeps one row at the minimum window width with tools open', 
   await openCodeFolder(page);
   await newChat(page);
   await page.getByLabel('Message agent').blur();
-  // The title-bar tools are Terminal and Browser. Changes opens from the changes row.
+  // The header has one Tools button. ⌘T opens the Terminal tab of the tool pane.
   await page.keyboard.press('ControlOrMeta+t');
   await expect(
     page
+      .getByRole('tablist', { name: 'Tools', exact: true })
+      .getByRole('tab', { name: 'Terminal', exact: true }),
+  ).toHaveAttribute('aria-selected', 'true');
+  await expect(
+    page
       .getByRole('group', { name: 'Tools', exact: true })
-      .getByRole('button', { name: 'Terminal', exact: true }),
+      .getByRole('button', { name: 'Tools', exact: true }),
   ).toHaveAttribute('aria-pressed', 'true');
-  const topbar = await page.locator('.topbar').boundingBox();
-  expect(topbar?.height).toBeLessThanOrEqual(48);
-  for (const id of ['conversation-titlebar-heading', 'conversation-titlebar-tabs']) {
+  const header = await page.locator('.conversation-header').boundingBox();
+  expect(header?.height).toBeLessThanOrEqual(48);
+  for (const id of [
+    'conversation-titlebar-heading',
+    'conversation-titlebar-tabs',
+    'conversation-titlebar-actions',
+  ]) {
     const box = await page.locator('#' + id).boundingBox();
     expect(box && box.y + box.height).toBeLessThanOrEqual(48);
   }

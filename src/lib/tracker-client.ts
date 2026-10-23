@@ -1,4 +1,4 @@
-import type { API, GitHubOwner, TrackerOwner } from '../types';
+import type { API, GitHubOwner, Session, TrackerOwner } from '../types';
 import { githubDescriptor } from '../domain/tracker';
 /** Compatibility boundary for preview fixtures and older desktop bridges only. */
 export function trackerClient(api: API, provider = 'github') {
@@ -53,4 +53,90 @@ export function trackerClient(api: API, provider = 'github') {
         ? api.trackerAddIssue(id, url)
         : legacy(() => api.githubAddIssue(id, url)),
   };
+}
+
+/** An issue that was a draft a short time ago, and the board column it had. */
+export interface DraftRevertTarget {
+  /** The board item of the issue. */
+  itemId: string;
+  /** The title and description to use when GitHub does not give them. */
+  title: string;
+  body: string;
+  /** The status option of the new draft: the column of the issue. */
+  statusId?: string;
+}
+export type DraftRevertResult =
+  | { itemId: string; draftId: string; error?: undefined }
+  | { itemId: string; draftId?: undefined; error: string };
+type DraftRevertAPI = Pick<
+  API,
+  'trackerContent' | 'trackerContentChange' | 'trackerDraft' | 'trackerStatus' | 'trackerItemAction'
+>;
+
+/**
+ * Changes new issues back to drafts. For each issue: adds a draft with the same title and
+ * description in the same column, closes the issue as not planned, then removes the issue from
+ * the board. Each step is a usual GitHub write, so the write history records it. When the issue
+ * does not close, the new draft is removed again and the issue stays. One failure does not stop
+ * the other issues.
+ */
+export async function revertIssuesToDrafts(
+  api: DraftRevertAPI,
+  groupId: string,
+  targets: DraftRevertTarget[],
+): Promise<DraftRevertResult[]> {
+  const results: DraftRevertResult[] = [];
+  for (const target of targets) {
+    try {
+      const content = await api.trackerContent(groupId, target.itemId);
+      if (content.kind !== 'Issue') throw new Error('This task is not an issue now.');
+      const title = (content.title || target.title).trim().slice(0, 256);
+      const body = (content.body ?? target.body).slice(0, 20000);
+      const draftId = await api.trackerDraft(groupId, title, body);
+      if (typeof draftId !== 'string' || !draftId)
+        throw new Error('GitHub did not return the new draft.');
+      if (target.statusId)
+        // The draft is on the board now. A failed column change only puts it in another column.
+        await api.trackerStatus(groupId, draftId, target.statusId).catch(() => undefined);
+      if (content.state === 'OPEN')
+        try {
+          await api.trackerContentChange(groupId, target.itemId, content.revision, {
+            kind: 'close',
+            reason: 'not-planned',
+          });
+        } catch (error) {
+          await api.trackerItemAction(groupId, draftId, { kind: 'remove' }).catch(() => undefined);
+          throw error;
+        }
+      await api.trackerItemAction(groupId, target.itemId, { kind: 'remove' });
+      results.push({ itemId: target.itemId, draftId });
+    } catch (error) {
+      results.push({
+        itemId: target.itemId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return results;
+}
+
+/**
+ * Links the saved chats of each old task to its new draft. A chat that is not saved yet keeps
+ * its link. A failed change keeps the old link: the chat continues in all cases.
+ */
+export async function relinkTaskChats(
+  api: Pick<API, 'updateSession'>,
+  sessions: Session[],
+  results: DraftRevertResult[],
+) {
+  const moved = new Map(
+    results.flatMap((result) => (result.draftId ? [[result.itemId, result.draftId]] : [])),
+  );
+  await Promise.all(
+    sessions.flatMap((session) => {
+      const draftId = moved.get(session.organization?.taskId || '');
+      if (!draftId || session.id.startsWith('draft-')) return [];
+      return [api.updateSession(session.agent, session.id, { taskId: draftId }).catch(() => {})];
+    }),
+  );
 }

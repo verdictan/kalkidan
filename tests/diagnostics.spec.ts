@@ -1,20 +1,18 @@
-import { test, expect, openSettingsWindow } from './helpers/app';
+import { test, expect, openPalette, palette } from './helpers/app';
 
-test('Diagnostics opens from Settings and shows a redacted bundle preview before export', async ({
+test('Diagnostics opens from search and shows a redacted bundle preview before export', async ({
   page,
 }) => {
   await page.goto('/');
-  // The support bundle opens from Settings › Computers › Details. The account menu has no
+  // The support bundle opens from search (⌘K). Settings and the account menu have no
   // Diagnostics item.
-  const settings = await openSettingsWindow(page, 'Computers');
-  await settings.getByRole('button', { name: 'Details', exact: true }).click();
-  await settings
-    .getByRole('group', { name: 'Diagnostics', exact: true })
-    .getByRole('button', { name: 'Support bundle…' })
+  await (await openPalette(page)).fill('Support bundle');
+  await palette(page)
+    .getByRole('option', { name: /^Support bundle…/ })
     .click();
   const dialog = page.getByRole('dialog', { name: 'Diagnostics', exact: true });
-  // The versions are on the rows of Settings › Computers now, so Diagnostics has no version
-  // list and no connection list.
+  // The versions are on the rows of Settings › Tools, so Diagnostics has no version list and
+  // no connection list.
   await expect(dialog.getByRole('group', { name: 'Telemetry is off' })).toBeVisible();
   await expect(dialog.getByRole('region', { name: /Versions|Connection/ })).toHaveCount(0);
   const exportButton = dialog.getByRole('button', { name: 'Export…' });

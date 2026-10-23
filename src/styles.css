@@ -6,3 +6,5 @@
 @import './styles/projects.css' layer(components);
 @import './styles/conversation.css' layer(components);
 @import './styles/tools.css' layer(components);
+@import './styles/tasks.css' layer(components);
+@import './styles/settings.css' layer(components);
