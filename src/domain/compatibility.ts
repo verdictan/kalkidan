@@ -153,7 +153,7 @@ export function protocolSupported(min: number, max: number) {
 }
 
 /** The Settings text when the runtime is too old to run the Kalkidan setup. */
-export const runtimeSetupNotice = `This Verdictan runtime cannot finish the Kalkidan setup. The setup needs runtime ${supportWindow.runtime.setupMinimum} or later. Update the runtime in Settings › Computers, then open this window again.`;
+export const runtimeSetupNotice = `This Verdictan runtime cannot finish the Kalkidan setup. The setup needs runtime ${supportWindow.runtime.setupMinimum} or later. Update the runtime in Settings › Computers. Then select Refresh in Settings › Computers › Details.`;
 
 /** The known-broken entry of a runtime version, or undefined. A prerelease counts by its core. */
 export function knownBrokenRuntime(version: unknown) {

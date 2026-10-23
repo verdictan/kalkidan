@@ -669,3 +669,31 @@ test('a saved selection in another shape is the same setup', () => {
     false,
   );
 });
+
+test('a plain setup read never starts the bootstrap, and it keeps the result of the last check', async () => {
+  const member = fixture({ bootstrap: 'bootstrap_available', result: 'desktop.permission_denied' });
+  // Settings opens: no bootstrap.
+  assert.equal((await member.service.current()).bootstrapReadiness, 'bootstrap_available');
+  assert.equal(member.operations().includes('setup.bootstrap'), false);
+  // The run after sign-in found that an administrator must connect Kalkidan.
+  await member.service.status();
+  const before = member.operations().length;
+  const read = await member.service.current();
+  assert.equal(read.bootstrapReadiness, 'bootstrap_requires_admin');
+  assert.equal(member.operations().slice(before).includes('setup.bootstrap'), false);
+
+  const failed = fixture({ bootstrap: 'bootstrap_available', result: 'desktop.setup_conflict' });
+  await failed.service.status();
+  const value = await failed.service.current();
+  assert.equal(value.bootstrapIssue, 'failed');
+  assert.equal(value.setupCode, 'desktop.setup_conflict');
+});
+
+test('the setup read shows the gateway of this computer for the same account only', async () => {
+  const f = fixture({ bootstrap: 'bootstrapped', policy: 'default_available' });
+  const { key } = await f.service.inspect();
+  f.service.keepGateway(key, { status: 'created' });
+  assert.deepEqual((await f.service.current()).computerGateway, { status: 'created' });
+  f.service.keepGateway('another-account', { status: 'failed', code: 'desktop.x' });
+  assert.equal((await f.service.current()).computerGateway, undefined);
+});

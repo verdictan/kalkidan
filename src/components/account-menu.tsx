@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import type { API } from '../api/contracts';
 import { keychainHostsMessage, keychainRefusedCode } from '../domain/verdictan';
-import { accountNames, verdictanErrorMessage } from '../lib/verdictan-labels';
+import { accountNames, rejectedSessionText, verdictanErrorMessage } from '../lib/verdictan-labels';
 import { regionNames } from '../lib/region-suggestion';
 import { shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
@@ -134,7 +134,14 @@ export function AccountMenu({ api }: { api: API }) {
   }
   if (!signedIn) {
     const authorizing = status?.phase === 'authorizing';
-    const label = supported ? (authorizing ? 'Finish signing in…' : 'Sign in') : 'Kalkidan';
+    // An ended or refused session needs a new sign-in. The account is not signed in then.
+    const label = supported
+      ? authorizing
+        ? 'Finish signing in…'
+        : status?.phase === 'expired'
+          ? 'Sign in again'
+          : 'Sign in'
+      : 'Kalkidan';
     // The same trigger as when signed in. "Sign in" is the first item of the menu.
     return (
       <div className="account-menu" data-state="signed-out">
@@ -299,7 +306,9 @@ export function SessionBanner({ api }: { api: API }) {
   return (
     <div className="session-banner" role="status" data-testid="session-banner">
       <CircleAlert className="session-banner-icon" aria-hidden="true" />
-      <p className="min-w-0 flex-1 truncate text-sm font-medium">Your session ended</p>
+      <p className="min-w-0 flex-1 truncate text-sm font-medium">
+        {rejectedSessionText(status) || 'Your session ended'}
+      </p>
       <Button variant="outline" size="sm" onClick={() => startSignIn('login')}>
         Sign in again
       </Button>

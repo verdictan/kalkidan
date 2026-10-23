@@ -30,7 +30,7 @@ export const accountPhaseLabels: Record<VerdictanStatus['phase'], StatusLabel> =
   'signed-out': { label: 'Signed out', tone: 'muted' },
   authorizing: { label: 'Signing in…', tone: 'secondary' },
   authenticated: { label: 'Signed in', tone: 'success' },
-  expired: { label: 'Session expired', tone: 'warning' },
+  expired: { label: 'Sign in again', tone: 'warning' },
   error: { label: 'Check failed', tone: 'destructive' },
 };
 
@@ -41,6 +41,17 @@ export const accountPhaseLabels: Record<VerdictanStatus['phase'], StatusLabel> =
 export function accountChanging(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? '');
   return /Account is changing/.test(message);
+}
+
+/**
+ * The words for an account whose session Verdictan did not accept, with the code. Empty when
+ * the account has no such code.
+ */
+export function rejectedSessionText(status: Pick<VerdictanStatus, 'phase' | 'error'> | undefined) {
+  const code = status?.phase === 'expired' ? status.error : undefined;
+  return code && /^desktop\.[a-z_]{1,100}$/.test(code)
+    ? `Verdictan did not accept your session. Code: ${code}`
+    : '';
 }
 
 export function accountPhaseLabel(phase: VerdictanStatus['phase'] | undefined): StatusLabel {

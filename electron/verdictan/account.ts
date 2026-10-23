@@ -14,6 +14,7 @@ import {
   secureStorageWaitingEvent,
   type DesktopOperation,
 } from './protocol';
+import { rejectedSessionCodes } from './sign-in-setup';
 
 export interface DesktopAccountOptions {
   apiOrigin: string;
@@ -44,6 +45,17 @@ const sessionEndedCodes = new Set([
   'desktop.auth_required',
   'desktop.session_rejected',
   'desktop.account_invalid',
+]);
+/**
+ * Operations of the account itself. Their own handling reports a failure. A session call that
+ * fails with a rejected session code (for example `setup.inspect`) marks the account.
+ */
+const accountOperations = new Set([
+  'status',
+  'capabilities',
+  'authorization.start',
+  'authorization.cancel',
+  'session.logout',
 ]);
 /** The longest time that a timer can wait. A longer wait starts the timer again. */
 const maxTimerMs = 2 ** 31 - 1;
@@ -199,7 +211,15 @@ export class VerdictanAccountService {
             if (event.event === secureStorageWaitingEvent) wait.start();
             progress?.(event);
           })
-          .catch(refused)
+          .catch((error: unknown) => {
+            if (
+              error instanceof DesktopProtocolError &&
+              rejectedSessionCodes.has(error.code) &&
+              !accountOperations.has(operation)
+            )
+              this.sessionRejected(error.code);
+            return refused(error);
+          })
           .finally(wait.end);
       },
       exportRuntime: (runtimeId) => {
@@ -252,6 +272,38 @@ export class VerdictanAccountService {
         clearTimeout(hint);
         if (waiting && --this.keychainWaits === 0) this.options.changed?.();
       },
+    };
+  }
+  /**
+   * Verdictan refused the session in a session call, but `status` can still say signed in. The
+   * account then shows "Sign in again" with the code, until a new sign-in. A check of the same
+   * session keeps this state: the session has the same expiry time.
+   */
+  private rejected?: { organizationId?: string; userId?: string; expiresAt?: string; code: string };
+  /** The rejected code that a call reported during the current account read. */
+  private rejectedDuringRead?: string;
+  sessionRejected(code: string) {
+    if (!rejectedSessionCodes.has(code)) return;
+    this.rejectedDuringRead = code;
+    const account = this.state.account;
+    if (this.disposed || this.state.phase !== 'authenticated' || !account) return;
+    this.rejected = {
+      organizationId: account.organizationId,
+      userId: account.userId,
+      expiresAt: account.expiresAt,
+      code,
+    };
+    this.set(this.rejectedState(this.state, code));
+  }
+  /** The "Sign in again" state of a signed-in account whose session Verdictan refused. */
+  private rejectedState(state: VerdictanStatus, code: string): VerdictanStatus {
+    return {
+      ...state,
+      phase: 'expired',
+      account: state.account && { ...state.account, state: 'expired' },
+      capabilities: state.capabilities && sessionCapabilities(state.capabilities),
+      executionReady: false,
+      error: code,
     };
   }
   private refuseKeychain(client: DesktopClient) {
@@ -350,6 +402,8 @@ export class VerdictanAccountService {
   authorize(intent: 'login' | 'register') {
     if (intent !== 'login' && intent !== 'register')
       return Promise.reject(new Error('Choose Sign in or Create account.'));
+    // A new sign-in gives a new session. A refused earlier session does not count any more.
+    this.rejected = undefined;
     return this.run(`authorize:${intent}`, async (client, generation) => {
       this.set({
         ...this.state,
@@ -416,18 +470,35 @@ export class VerdictanAccountService {
    * them again after each account change.
    */
   private async refresh(client: DesktopClient, generation: number) {
+    this.rejectedDuringRead = undefined;
     const account = parseAccount((await client.request('status')).data, this.options.apiOrigin);
     const capabilities = parseCapabilities((await client.request('capabilities')).data);
     assertRuntimeSupported(capabilities, this.now());
     if (account.state === 'authenticated' && capabilities.capabilities.includes('account.inspect'))
       Object.assign(account, await accountNames(client, account));
-    if (generation === this.generation)
-      this.set({
-        phase: account.state,
-        account,
-        capabilities: sessionCapabilities(capabilities, account),
-        executionReady: false,
-      });
+    // `account.inspect` refused the session, although `status` says signed in.
+    if (account.state === 'authenticated' && this.rejectedDuringRead)
+      this.rejected = {
+        organizationId: account.organizationId,
+        userId: account.userId,
+        expiresAt: account.expiresAt,
+        code: this.rejectedDuringRead,
+      };
+    const rejected =
+      account.state === 'authenticated' &&
+      this.rejected?.organizationId === account.organizationId &&
+      this.rejected?.userId === account.userId &&
+      this.rejected?.expiresAt === account.expiresAt
+        ? this.rejected
+        : undefined;
+    if (generation !== this.generation) return;
+    const next: VerdictanStatus = {
+      phase: account.state,
+      account,
+      capabilities: sessionCapabilities(capabilities, account),
+      executionReady: false,
+    };
+    this.set(rejected ? this.rejectedState(next, rejected.code) : next);
   }
   cancel() {
     if (this.state.phase !== 'authorizing') return Promise.resolve(this.status());
