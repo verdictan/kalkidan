@@ -14,7 +14,6 @@ import {
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { LocalData, removeHostData } from '../electron/storage/local-data';
-import { AppPreferences } from '../electron/app-preferences';
 import { BindingStore } from '../electron/verdictan/bindings';
 import { ChatOutcomes } from '../electron/chat-outcomes';
 import { SessionLibrary } from '../electron/session-library';
@@ -311,19 +310,6 @@ test('the session, outcome, and binding stores clear their chat data', async () 
     assert.equal(stored.installationId, identity.installationId);
     await bindings.forgetHost('host-1');
     assert.equal(await bindings.knownIdentities('host-1'), null);
-  } finally {
-    s.done();
-  }
-});
-
-test('the data notice shows until the user reads it once', async () => {
-  const s = sandbox();
-  try {
-    const file = join(s.root, 'preferences.json');
-    const preferences = new AppPreferences(file);
-    assert.deepEqual(await preferences.dataNotice(), { seen: false });
-    assert.deepEqual(await preferences.setDataNoticeSeen(), { seen: true });
-    assert.deepEqual(await new AppPreferences(file).dataNotice(), { seen: true });
   } finally {
     s.done();
   }

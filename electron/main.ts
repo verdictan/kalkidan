@@ -771,8 +771,6 @@ app.whenReady().then(async () => {
   );
   handle('first-run-state', () => preferences.firstRun());
   handle('set-welcome-done', () => preferences.setWelcomeDone());
-  handle('data-notice-state', () => preferences.dataNotice());
-  handle('set-data-notice-seen', () => preferences.setDataNoticeSeen());
   handle('notification-preferences', () => preferences.notifications());
   handle('set-notification-preferences', (value: unknown) => preferences.setNotifications(value));
   handle('verdictan-logout', async () => {

@@ -24,7 +24,6 @@ async function fixture(page: Page) {
       githubCliCheck: async () => ({ status: 'ready' }),
       githubAuthStatus: async () => ({ status: 'idle' }),
       onMenuCommand: () => () => {},
-      dataNoticeState: async () => ({ seen: true }),
       verdictanStatus: async () => ({
         region: 'eu',
         phase: 'authenticated',

@@ -12,6 +12,7 @@ import {
 import { createPortal } from 'react-dom';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { isNodeSelection, posToDOMRect } from '@tiptap/core';
+import { Selection } from '@tiptap/pm/state';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
@@ -557,6 +558,13 @@ export function WikiEditor({
   const [editingLink, setEditingLink] = useState(false);
   // The page picker of the Link dialog. It links the selected text to a page.
   const [pickerOpen, setPickerOpen] = useState(false);
+  // True from the moment "Link a page…" is selected. The Link dialog then closes and must not
+  // give focus back to the editor. The state value can be one render late.
+  const pickerOpening = useRef(false);
+  // The text selection when the Link dialog opened. Focus moves to the dialog and then to the
+  // page picker. On the way, focus can go back to the editor for a moment, and the browser caret
+  // then replaces the selection. Each link action restores this selection first.
+  const linkSelection = useRef<unknown>(undefined);
   // "[[" or "@" opens a page menu at the caret. The typed text after it filters the pages.
   const [mention, setMention] = useState<Slash | null>(null);
   const [mentionPages, setMentionPages] = useState<ProjectDocMetadata[] | null>(null);
@@ -751,20 +759,36 @@ export function WikiEditor({
   }, [editor, menuOpen, activeOption, slashId]);
   function openLink() {
     if (!editor) return;
+    linkSelection.current = editor.state.selection.toJSON();
     const href = editor.getAttributes('link').href || '';
     setEditingLink(!!href);
     setUrl(href);
     setLinkOpen(true);
   }
+  /** Selects again the text that was selected when the Link dialog opened. */
+  function restoreLinkSelection() {
+    const saved = linkSelection.current;
+    linkSelection.current = undefined;
+    if (!editor || !saved) return;
+    try {
+      const selection = Selection.fromJSON(editor.state.doc, saved);
+      if (!selection.eq(editor.state.selection))
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+    } catch {
+      // The document changed, so the saved positions are not valid. Keep the current selection.
+    }
+  }
   const validUrl = /^(https?:\/\/|mailto:|#)/i.test(url.trim()) || !!pageIdFromHref(url);
   function applyLink() {
     if (!validUrl) return;
+    restoreLinkSelection();
     editor?.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run();
     setLinkOpen(false);
   }
   /** Links the selected text to a page. With no selected text, it adds the page title as a link. */
   function linkPage(doc: { id: string; title: string }) {
     if (!editor) return;
+    restoreLinkSelection();
     const href = pageHref(doc.id);
     const chain = editor.chain().focus();
     if (editor.state.selection.empty && !editor.isActive('link'))
@@ -1296,7 +1320,7 @@ export function WikiEditor({
           layout="scroll"
           onCloseAutoFocus={(event) => {
             // The page picker now owns focus. Closing this dialog must not take it back.
-            if (pickerOpen) event.preventDefault();
+            if (pickerOpen || pickerOpening.current) event.preventDefault();
           }}
         >
           {/* No form element: the header, body and footer must be direct children for the
@@ -1328,6 +1352,7 @@ export function WikiEditor({
                 size="sm"
                 className="justify-self-start"
                 onClick={() => {
+                  pickerOpening.current = true;
                   setLinkOpen(false);
                   setPickerOpen(true);
                 }}
@@ -1343,6 +1368,7 @@ export function WikiEditor({
                 variant="ghost"
                 className="sm:mr-auto"
                 onClick={() => {
+                  restoreLinkSelection();
                   editor?.chain().focus().extendMarkRange('link').unsetLink().run();
                   setLinkOpen(false);
                 }}
@@ -1379,7 +1405,10 @@ export function WikiEditor({
           api={api}
           groupId={groupId}
           open={pickerOpen}
-          onOpenChange={setPickerOpen}
+          onOpenChange={(open) => {
+            if (!open) pickerOpening.current = false;
+            setPickerOpen(open);
+          }}
           onPick={linkPage}
           title="Link a page"
           onCloseAutoFocus={(event) => {

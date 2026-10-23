@@ -6,8 +6,6 @@ async function fixture(page: Page, extra = '') {
   await page.addInitScript((extra) => {
     const w = window as any;
     w.calls = [];
-    // The main process keeps the state in a file. The fixture keeps it across a reload.
-    w.noticeSeen = localStorage.getItem('test-notice-seen') === 'true';
     const base: Record<string, unknown> = {
       snapshot: async () => ({
         projects: [],
@@ -34,13 +32,6 @@ async function fixture(page: Page, extra = '') {
           expiresAt: '2026-11-01T00:00:00Z',
         },
       }),
-      dataNoticeState: async () => ({ seen: w.noticeSeen }),
-      setDataNoticeSeen: async () => {
-        w.calls.push(['setDataNoticeSeen']);
-        w.noticeSeen = true;
-        localStorage.setItem('test-notice-seen', 'true');
-        return { seen: true };
-      },
       localDataUsage: async () => ({
         root: '/Users/dana/.kalkidan',
         total: 1_200_000_000,
@@ -65,38 +56,6 @@ async function fixture(page: Page, extra = '') {
   await page.goto('/');
 }
 
-const notice = (page: Page) => page.getByRole('dialog', { name: 'Where your data goes' });
-
-test('the data notice shows once before the first request and names all three places', async ({
-  page,
-}) => {
-  await fixture(page);
-  const dialog = notice(page);
-  await expect(dialog).toBeVisible();
-  for (const name of [
-    'Stays on the execution host',
-    'Goes to the model provider',
-    'Verdictan keeps in your selected region',
-  ])
-    await expect(dialog.getByRole('heading', { name })).toBeVisible();
-  await expect(dialog).toContainText('a hash of the prompt');
-  // Escape does not dismiss it. The user must select Continue.
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeVisible();
-  await dialog.getByRole('button', { name: 'Continue' }).click();
-  await expect(dialog).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).calls)).toEqual([['setDataNoticeSeen']]);
-  await page.reload();
-  await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
-  await expect(notice(page)).toHaveCount(0);
-});
-
-test('the notice does not show when the user already read it', async ({ page }) => {
-  await fixture(page, 'window.noticeSeen = true; return {};');
-  await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
-  await expect(notice(page)).toHaveCount(0);
-});
-
 /** Opens Settings › General › Your data. */
 async function openYourData(page: Page) {
   const settings = await openSettingsWindow(page, 'General');
@@ -106,18 +65,20 @@ async function openYourData(page: Page) {
     .click();
 }
 
-test('Settings › General › Your data keeps the notice, the disk use, export, and deletion', async ({
+test('Settings › General › Your data keeps the disk use, export, and deletion', async ({
   page,
 }) => {
-  await fixture(page, 'window.noticeSeen = true; return {};');
+  await fixture(page);
   await openYourData(page);
   const settings = page.getByRole('dialog', { name: 'Your data' });
   await expect(settings).toContainText('1.2 GB of 2.0 GB in /Users/dana/.kalkidan');
-  // The notice is in the closed "Where your data goes" section.
-  const notice = settings.getByRole('heading', { name: 'Goes to the model provider' });
-  await expect(notice).toHaveCount(0);
-  await settings.getByRole('button', { name: 'Where your data goes' }).click();
-  await expect(notice).toBeVisible();
+  // The page has no data notice, store, or removal sections.
+  for (const name of [
+    'Where your data goes',
+    'What each store keeps, and for how long',
+    'When you remove a host, an account, or the app',
+  ])
+    await expect(settings.getByRole('button', { name })).toHaveCount(0);
   await settings.getByRole('button', { name: 'Export…' }).click();
   await expect(page.getByRole('status').getByText('Exported 12 files.')).toBeVisible();
   // Delete chat history is in the Danger zone.
@@ -141,8 +102,7 @@ test('Settings › General › Your data warns when only chat history keeps the 
 }) => {
   await fixture(
     page,
-    `window.noticeSeen = true;
-     return { localDataUsage: async () => ({ root: '/r', total: 2_500_000_000, limit: 2_000_000_000, categories: [] }) };`,
+    `     return { localDataUsage: async () => ({ root: '/r', total: 2_500_000_000, limit: 2_000_000_000, categories: [] }) };`,
   );
   await openYourData(page);
   const settings = page.getByRole('dialog', { name: 'Your data' });

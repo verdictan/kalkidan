@@ -2,10 +2,7 @@ import { useEffect, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import type { API } from '../types';
 import {
-  dataDisclosure,
-  lifecycleEffects,
   localDataLabels,
-  storePolicies,
   type LocalDataDeletion,
   type LocalDataUsage,
 } from '../domain/data-policy';
@@ -18,7 +15,6 @@ import {
   DialogBody,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from './ui/dialog';
@@ -35,87 +31,6 @@ export function formatBytes(bytes: number) {
     unit++;
   }
   return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
-}
-
-/** The three parts of the data notice. */
-export function DataDisclosure({ headingLevel = 3 }: { headingLevel?: 3 | 4 }) {
-  const Heading = headingLevel === 3 ? 'h3' : 'h4';
-  return (
-    <div className="data-disclosure grid gap-4" data-testid="data-disclosure">
-      {dataDisclosure.map((section) => (
-        <section key={section.id} aria-labelledby={`data-${section.id}`}>
-          <Heading id={`data-${section.id}`} className="mb-1 text-sm font-semibold">
-            {section.title}
-          </Heading>
-          <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-            {section.items.map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        </section>
-      ))}
-    </div>
-  );
-}
-
-/**
- * The state of the data notice. `show` is true when the user has not read the notice and an
- * account is signed in, so that the notice shows before the first request.
- */
-export function useDataNotice(api: API, signedIn: boolean) {
-  const supported = typeof api.dataNoticeState === 'function';
-  const [seen, setSeen] = useState<boolean>();
-  useEffect(() => {
-    if (!supported || !signedIn || seen !== undefined) return;
-    let current = true;
-    void api.dataNoticeState!().then(
-      (state) => current && setSeen(state.seen),
-      () => current && setSeen(true),
-    );
-    return () => {
-      current = false;
-    };
-  }, [api, supported, signedIn, seen]);
-  return {
-    show: supported && signedIn && seen === false,
-    acknowledge: async () => {
-      setSeen(true);
-      try {
-        await api.setDataNoticeSeen?.();
-      } catch {
-        // The notice shows again at the next launch. Nothing else depends on it.
-      }
-    },
-  };
-}
-
-/** The data notice before the first request. It shows once. Preferences › Your data keeps it. */
-export function DataNoticeDialog({ open, onDone }: { open: boolean; onDone: () => void }) {
-  return (
-    <Dialog open={open}>
-      <DialogContent
-        size="md"
-        aria-describedby="data-notice-description"
-        onEscapeKeyDown={(event) => event.preventDefault()}
-        onPointerDownOutside={(event) => event.preventDefault()}
-        showCloseButton={false}
-      >
-        <DialogHeader>
-          <DialogTitle>Where your data goes</DialogTitle>
-          <DialogDescription id="data-notice-description">
-            Read this before you send the first request. You can read it again in Preferences › Your
-            data.
-          </DialogDescription>
-        </DialogHeader>
-        <DataDisclosure />
-        <DialogFooter>
-          <Button autoFocus onClick={onDone}>
-            Continue
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 /** The "Your data" dialog of Preferences. */
@@ -273,35 +188,6 @@ export function DataSection({ api, open }: { api: API; open: boolean }) {
           </Button>
         </SettingsRow>
       </SettingsRows>
-      <div className="grid">
-        <SettingsDisclosure title="Where your data goes">
-          <DataDisclosure headingLevel={4} />
-        </SettingsDisclosure>
-        <SettingsDisclosure title="What each store keeps, and for how long">
-          <div className="grid gap-3 text-sm">
-            {storePolicies.map((store) => (
-              <section key={store.id} aria-label={store.name}>
-                <h4 className="font-medium">{store.name}</h4>
-                <p className="text-muted-foreground">{store.contents}</p>
-                <p className="text-muted-foreground">Location: {store.path}</p>
-                <p className="text-muted-foreground">Retention: {store.retention}</p>
-                <p className="text-muted-foreground">Limit: {store.limit}</p>
-                <p className="text-muted-foreground">Delete: {store.deletion}</p>
-              </section>
-            ))}
-          </div>
-        </SettingsDisclosure>
-        <SettingsDisclosure title="When you remove a host, an account, or the app">
-          <ul className="grid gap-2 text-sm">
-            {lifecycleEffects.map((item) => (
-              <li key={item.action}>
-                <span className="font-medium">{item.action}.</span>{' '}
-                <span className="text-muted-foreground">{item.effect}</span>
-              </li>
-            ))}
-          </ul>
-        </SettingsDisclosure>
-      </div>
       <ConfirmDialog
         open={confirm === 'chat-history'}
         title="Delete chat history?"
