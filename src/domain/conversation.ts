@@ -37,6 +37,8 @@ export interface SessionOrganization {
     state?: 'open' | 'merged' | 'closed';
     /** An open pull request that is not ready for review. */
     draft?: boolean;
+    /** The CI checks at the last read. */
+    checks?: 'pass' | 'fail' | 'pending';
   };
   /** The chat that this chat is a fork of. */
   forkedFrom?: ChatLink;

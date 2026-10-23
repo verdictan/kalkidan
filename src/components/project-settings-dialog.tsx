@@ -13,6 +13,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { ConfirmDialog } from './confirm-dialog';
@@ -24,8 +25,7 @@ import { useIdentityOverrides } from '../hooks/use-identity';
 import { useWorkspaceIdentity } from '../hooks/use-workspace-identity';
 import { IdentityMark } from './ui/identity-mark';
 import { IdentitySwatches } from './ui/identity-swatches';
-import { MoreButton } from './ui/more-button';
-import { menuDestructiveClass } from './ui/menu-styles';
+import { menuDestructiveClass, menuLabelClass } from './ui/menu-styles';
 import { SettingsRow, SettingsRows } from './settings-disclosure';
 import { codeFolders } from './repository-import';
 
@@ -82,8 +82,8 @@ export function projectPart(tab: string | undefined) {
 /**
  * Settings › the current project (ST-C4): its mark, name and color, its repos as chips (hover ×
  * removes one, + adds one), and the board chip. The board chip opens the board settings in
- * place, under the chips. The ⋯ menu has Rename… and Remove project…. `tab` moves to a part,
- * for example 'board'.
+ * place, under the chips. The mark and name open the menu: Color, Automatic color, Rename… and
+ * Remove project…. `tab` moves to a part, for example 'board'.
  */
 export function ProjectSettingsPanel({
   api,
@@ -161,49 +161,58 @@ export function ProjectSettingsPanel({
     }
   }
   return (
-    <section className="st-section" id="settings-project" aria-labelledby="settings-project-label">
+    <section className="st-section" id="settings-project" aria-label={group.name}>
       <div className="st-section-head">
-        <h2 id="settings-project-label" className="st-project-title">
-          <IdentityMark kind="project" color={color} slot={false} />
-          {group.name}
+        <h2 className="st-project-title" aria-label={group.name}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="st-project-menu"
+                aria-label={`Actions for ${group.name}`}
+              >
+                <IdentityMark kind="project" color={color} slot={false} />
+                {group.name}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <div className="menu-color st-project-color" role="group" aria-label="Color">
+                <div className={menuLabelClass} aria-hidden="true">
+                  Color
+                </div>
+                <IdentitySwatches
+                  label={`Color of ${group.name}`}
+                  value={chosen}
+                  automatic={color}
+                  onChange={(next) => setIdentityOverride('project', group.name, next)}
+                />
+              </div>
+              <DropdownMenuItem
+                disabled={!chosen}
+                onSelect={() => setIdentityOverride('project', group.name, null)}
+              >
+                Automatic color
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={() =>
+                  window.dispatchEvent(
+                    new CustomEvent('kalkidan-rename-project', { detail: { groupId: group.id } }),
+                  )
+                }
+              >
+                Rename…
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                id={projectParts.danger}
+                className={menuDestructiveClass}
+                onSelect={() => setRemoving(true)}
+              >
+                Remove project…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </h2>
-        <IdentitySwatches
-          label={`Color of ${group.name}`}
-          value={chosen}
-          automatic={color}
-          automaticChoice
-          onChange={(next) => setIdentityOverride('project', group.name, next)}
-          className="st-swatches"
-        />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <MoreButton label={`Actions for ${group.name}`} />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onSelect={() =>
-                window.dispatchEvent(
-                  new CustomEvent('kalkidan-rename-project', { detail: { groupId: group.id } }),
-                )
-              }
-            >
-              Rename…
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!chosen}
-              onSelect={() => setIdentityOverride('project', group.name, null)}
-            >
-              Automatic color
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              id={projectParts.danger}
-              className={menuDestructiveClass}
-              onSelect={() => setRemoving(true)}
-            >
-              Remove project…
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
       <div className="st-project-row">
         <ul className="st-chips" id={projectParts.folders} aria-label={`Repos of ${group.name}`}>

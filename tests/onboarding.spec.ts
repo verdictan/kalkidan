@@ -1,9 +1,11 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+import { openNewProject } from './helpers/navigation';
 
 /** The search field of the command palette, open. */
 async function search(page: Page, text: string) {
-  await page.getByRole('button', { name: 'Search or run a command', exact: true }).click();
+  // Before the first project there is no sidebar, so ⌘K opens the palette.
+  await page.keyboard.press('ControlOrMeta+KeyK');
   await page.getByRole('combobox', { name: 'Search or run a command' }).fill(text);
 }
 
@@ -46,16 +48,16 @@ test('an empty workspace has one action of each kind', async ({ page }) => {
   page.on('pageerror', (error) => errors.push(error.message));
   await emptyWorkspace(page);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  // The composer chooses a folder, and the sidebar makes a new project. Each action shows
-  // once. There is no "New empty project".
+  // The composer chooses a folder. Before the first project there is no sidebar (ST-C2):
+  // New project is ⇧⌘N and ⌘K. There is no "New empty project".
   const main = page.getByRole('main');
   const nav = page.getByRole('navigation', { name: 'Projects and repositories' });
   await expect(main.getByRole('button', { name: 'Choose a folder', exact: true })).toHaveCount(1);
-  await expect(nav.getByRole('button', { name: 'New project', exact: true })).toHaveCount(1);
+  await expect(nav).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Toggle sidebar', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'New empty project', exact: true })).toHaveCount(0);
-  // The tree has no Chats or Waiting pages.
-  await expect(nav.getByRole('button', { name: 'All chats', exact: true })).toHaveCount(0);
-  await expect(nav.getByRole('button', { name: /^Waiting/ })).toHaveCount(0);
+  await openNewProject(page);
+  await expect(page.getByRole('dialog', { name: 'New project', exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -139,8 +141,8 @@ test('a first run with a missing tool shows the tools check, then the composer',
 }) => {
   await page.setViewportSize({ width: 600, height: 650 });
   await firstRun(page, { claude: '2.1.306', gh: '2.62.0' });
-  // "Almost ready" lists the tools of this Mac. It asks for no sign-in and no folder.
-  await expect(toolsCheck(page).getByRole('heading', { name: 'Almost ready' })).toBeVisible();
+  // "Your tools" lists the tools of this Mac. It asks for no sign-in and no folder.
+  await expect(toolsCheck(page).getByRole('heading', { name: 'Your tools' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toHaveCount(0);
   const rows = toolsCheck(page).getByRole('list', { name: 'Your tools' }).getByRole('listitem');
   await expect(rows).toHaveCount(3);
@@ -158,7 +160,7 @@ test('a first run with a missing tool shows the tools check, then the composer',
   await expect(go).toBeInViewport();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   // Restart finds the tools that the user installed.
-  await toolsCheck(page).getByRole('button', { name: 'Restart', exact: true }).click();
+  await toolsCheck(page).getByRole('button', { name: 'Restart Kalkidan', exact: true }).click();
   expect(await page.evaluate(() => (window as any).restarts)).toBe(1);
   // Continue ends the first run and opens the composer.
   await go.click();
@@ -178,7 +180,7 @@ test('a first run with every tool found goes straight to the composer', async ({
 
 test('a first run with no agent offers only Restart Kalkidan', async ({ page }) => {
   await firstRun(page, { gh: '2.62.0' });
-  await expect(toolsCheck(page).getByRole('heading', { name: 'Almost ready' })).toBeVisible();
+  await expect(toolsCheck(page).getByRole('heading', { name: 'Your tools' })).toBeVisible();
   await expect(toolsCheck(page).getByRole('button')).toHaveCount(1);
   await toolsCheck(page).getByRole('button', { name: 'Restart Kalkidan', exact: true }).click();
   expect(await page.evaluate(() => (window as any).restarts)).toBe(1);

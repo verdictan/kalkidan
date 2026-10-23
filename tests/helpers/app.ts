@@ -46,7 +46,7 @@ export const sidebar = (page: Page) =>
 
 /** The one Settings page (⌘,): account, Tools, preferences and the current project. */
 export const settingsDialog = (page: Page) =>
-  page.getByRole('region', { name: 'Settings', exact: true });
+  page.getByRole('dialog', { name: 'Settings', exact: true });
 /** @deprecated Preferences is a part of the Settings page now. */
 export const preferencesDialog = settingsDialog;
 
@@ -74,10 +74,23 @@ export async function openAccountMenuItem(page: Page, name: string | RegExp) {
   }).toPass({ timeout: 15000 });
 }
 
-/** Opens the Settings page from the gear in the sidebar footer, at a part, and returns it. */
+/**
+ * Opens the Settings page, at a part, and returns it. Signed in, it uses "Settings…" in the
+ * account menu of the sidebar footer; signed out, it uses ⌘, (Ctrl+, on other systems).
+ */
 export async function openSettingsWindow(page: Page, section?: string): Promise<Locator> {
-  await sidebar(page).getByRole('button', { name: 'Settings', exact: true }).click();
   const settings = settingsDialog(page);
+  // Settings is a sheet over the window. While it is open, the sidebar is behind it.
+  if (!(await settings.isVisible())) {
+    const account = sidebar(page).getByRole('button', { name: /^Account: / });
+    if (await account.isVisible()) await openAccountMenuItem(page, /^Settings…/);
+    else
+      // A dialog that is still closing takes no shortcut. Press again until Settings shows.
+      await expect(async () => {
+        if (!(await settings.isVisible())) await page.keyboard.press('ControlOrMeta+Comma');
+        await expect(settings).toBeVisible({ timeout: 1000 });
+      }).toPass({ timeout: 10000 });
+  }
   await expect(settings).toBeVisible();
   if (section && section !== 'Account')
     await settingsSection(page, section).scrollIntoViewIfNeeded();

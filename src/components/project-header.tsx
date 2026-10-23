@@ -29,10 +29,11 @@ const event = (name: string, detail: object) =>
   window.dispatchEvent(new CustomEvent(name, { detail }));
 
 /**
- * The one 48px header of a project: the project square, the name, the view switch (Overview,
- * Tasks, Knowledge) and the project menu, the same on every view. The active view takes the
- * tint of the project color. A remote project shows its SSH host after the name. A view can
- * put its own controls in `#project-header-actions`, before the menu.
+ * The head of a project: the title bar with the project crumb, then the title row (the 16px
+ * square, the name and the project menu) and the tabs Overview, Tasks and Knowledge. Knowledge
+ * (KN-B) has no title row: its tabs come under the title bar, and the menu is in the title
+ * bar. A remote project shows its SSH host after the name. A view can put its own controls in
+ * `#project-header-actions`, before the menu.
  */
 function ProjectHeader({
   api,
@@ -109,6 +110,7 @@ function ProjectHeader({
         )
       }
       viewsLabel="Project page"
+      titleRow={page !== 'knowledge'}
       views={projectTabs.map((tab) => ({
         value: tab.page,
         label: tab.label,
@@ -177,8 +179,8 @@ function ProjectHeader({
 }
 
 /**
- * The frame of every project view: the one header stays in the same place on each view, then
- * the view. Only the view below the header scrolls.
+ * The frame of every project view: the title bar and the page head stay in the same place on
+ * each view, then the view. Only the view below the header scrolls.
  */
 export function ProjectFrame({
   api,

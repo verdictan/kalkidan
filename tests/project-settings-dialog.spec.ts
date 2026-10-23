@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, settingsDialog, sidebar } from './helpers/app';
+import { test, expect, settingsDialog } from './helpers/app';
 
 const settings = (page: Page) => settingsDialog(page);
 /** The part of one project in Settings. Its title is the project name. */
@@ -7,7 +7,7 @@ const project = (page: Page, name: string) =>
   settings(page).getByRole('region', { name, exact: true });
 /** The row of a project in the sidebar tree. */
 const treeRow = (page: Page, name: string) =>
-  sidebar(page).getByRole('button', { name, exact: true });
+  page.locator('.project-tree').getByRole('button', { name, exact: true, includeHidden: true });
 
 /** Opens the project part of Settings from the right-click menu of the project in the tree. */
 async function openFromTree(page: Page, name: string) {
@@ -23,30 +23,24 @@ test('the project part of Settings has the name, color, repos, board and Remove'
   await openFromTree(page, 'Atlas');
   const atlas = project(page, 'Atlas');
 
-  // The color: 8 swatches and Automatic. A swatch saves at once. Automatic goes back to the
-  // color that Kalkidan chose: Automatic is checked, and the automatic swatch shows as current
-  // without a check.
-  const colors = atlas.getByRole('radiogroup', { name: 'Color of Atlas' });
-  await expect(colors.getByRole('radio')).toHaveCount(9);
-  const automatic = colors.getByRole('radio', { name: 'Automatic', exact: true });
+  // The color is in the menu of the mark and the name: 8 swatches, then Automatic color. A
+  // swatch saves at once. Automatic color goes back to the color that Kalkidan chose: the
+  // automatic swatch then shows as current without a check.
+  await atlas.getByRole('button', { name: 'Actions for Atlas' }).click();
+  const colors = page.getByRole('menu').getByRole('radiogroup', { name: 'Color of Atlas' });
+  await expect(colors.getByRole('radio')).toHaveCount(8);
   // The demo gives Atlas a chosen color.
   await expect(colors.getByRole('radio', { name: 'Indigo' })).toBeChecked();
-  await expect(automatic).not.toBeChecked();
-  await automatic.click();
-  await expect(automatic).toBeChecked();
-  await expect(colors.locator('[data-current]')).toHaveCount(1);
-  await expect(colors.locator('[data-current]')).not.toBeChecked();
   await colors.getByRole('radio', { name: 'Teal' }).click();
   await expect(colors.getByRole('radio', { name: 'Teal' })).toBeChecked();
-  await expect(automatic).not.toBeChecked();
   await expect(colors.locator('[data-current]')).toHaveCount(0);
-  await atlas.getByRole('button', { name: 'Actions for Atlas' }).click();
   await page.getByRole('menuitem', { name: 'Automatic color', exact: true }).click();
+  await atlas.getByRole('button', { name: 'Actions for Atlas' }).click();
   await expect(colors.getByRole('radio', { name: 'Teal' })).not.toBeChecked();
-  await expect(automatic).toBeChecked();
-  await colors.getByRole('radio', { name: 'Teal' }).click();
-  await automatic.click();
-  await expect(automatic).toBeChecked();
+  await expect(colors.locator('[data-current]')).toHaveCount(1);
+  await expect(colors.locator('[data-current]')).not.toBeChecked();
+  await expect(page.getByRole('menuitem', { name: 'Automatic color' })).toBeDisabled();
+  await page.keyboard.press('Escape');
 
   // Rename… asks for the new name. The title and the tree follow it.
   await atlas.getByRole('button', { name: 'Actions for Atlas' }).click();
@@ -81,7 +75,8 @@ test('the project part of Settings has the name, color, repos, board and Remove'
   await expect(board).toHaveAttribute('aria-expanded', 'true');
   await expect(web.locator('.st-board')).toBeVisible();
 
-  // Remove project… is in the ⋯ menu, with its confirmation. There is no Danger zone.
+  // Remove project… is in the menu of the mark and the name, with its confirmation. There is
+  // no Danger zone.
   await expect(web).not.toContainText('Danger zone');
   await web.getByRole('button', { name: 'Actions for Atlas web' }).click();
   await page.getByRole('menuitem', { name: 'Remove project…', exact: true }).click();

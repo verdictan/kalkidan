@@ -27,7 +27,7 @@ test('the sign-in asks for an EU or US region and saves it only on a choice', as
     };
   });
   await page.goto('/');
-  // The sidebar footer offers the sign-in, next to the gear.
+  // The sidebar footer offers the sign-in. Settings opens with Mod+,.
   await expect(sidebar(page).getByRole('button', { name: 'Sign in', exact: true })).toBeVisible();
   // The account at the top of Settings is not signed in. A missing region is not an error.
   const settings = await openSettings(page, 'Account');

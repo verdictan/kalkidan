@@ -41,11 +41,12 @@ function isMarkSpec(value: unknown): value is MarkSpec {
 }
 
 /**
- * The one 48px header of every page, which is also the title bar. It holds the identity mark
- * and the title (15/24, 600), the view switch as a segmented control, and the actions. A chat
- * gives `crumbs` (identity tokens) instead of a title. The active view takes the 12% tint of
- * the page's identity color; `tint` gives the whole header a 5% tint (the chat). The header is
- * a drag region; its buttons and links are not.
+ * The 40px title bar of every page, and on a page with views the page head under it. The title
+ * bar holds the crumb: the identity mark and the name (13/20, 500), or the `crumbs` of a chat,
+ * then the actions. A page with views (a project) adds the page head: a title row with the
+ * 16px mark, the 20px title and the actions, then the views as underlined tabs. Without
+ * `titleRow`, the page head is only the tabs and the actions stay in the title bar. The title
+ * bar is a drag region; its buttons and links are not.
  */
 export function PageHeader<T extends string = string>({
   title,
@@ -57,8 +58,7 @@ export function PageHeader<T extends string = string>({
   view,
   onViewChange,
   viewsLabel = 'Views',
-  tintViews,
-  tint,
+  titleRow,
   actions,
   className,
 }: {
@@ -77,17 +77,18 @@ export function PageHeader<T extends string = string>({
   onViewChange?: (value: T) => void;
   /** The name of the view landmark. */
   viewsLabel?: string;
-  /** The active view takes the identity tint. The default is on when `mark` has a color. */
+  /** With views: the large title row above the tabs. The default is on. */
+  titleRow?: boolean;
+  /** Old callers. The title bar has no tint. */
   tintViews?: boolean;
-  /** A 5% tint of this color on the whole header. */
   tint?: IdentityColor;
   actions?: ReactNode;
   className?: string;
 }) {
   const list = useRef<HTMLDivElement>(null);
   const markSpec = isMarkSpec(mark) ? mark : null;
-  const tintColor = tint ?? markSpec?.color;
-  const viewTint = (tintViews ?? Boolean(markSpec)) && Boolean(tintColor);
+  const hasViews = Boolean(views && views.length > 0);
+  const head = hasViews && (titleRow ?? true);
   function move(event: KeyboardEvent<HTMLDivElement>) {
     const buttons = [...(list.current?.querySelectorAll('button') || [])];
     const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
@@ -106,64 +107,92 @@ export function PageHeader<T extends string = string>({
     event.preventDefault();
     buttons[next].focus();
   }
-  const leading = markSpec ? (
-    <IdentityMark kind={markSpec.kind} color={markSpec.color} slot={false} />
-  ) : (
-    ((mark as ReactNode) ?? icon)
-  );
+  const leading = (size: 'sm' | 'lg') =>
+    markSpec ? (
+      <IdentityMark kind={markSpec.kind} color={markSpec.color} size={size} slot={false} />
+    ) : (
+      ((mark as ReactNode) ?? icon)
+    );
+  const style = markSpec ? (identityStyle(markSpec.color) as CSSProperties) : undefined;
   return (
-    <header
-      data-slot="page-header"
-      data-tinted={tint ? '' : undefined}
-      data-view-tint={viewTint ? '' : undefined}
-      className={cn('app-header page-header', className)}
-      style={tintColor ? (identityStyle(tintColor) as CSSProperties) : undefined}
-    >
-      {crumbs ? (
-        <div className="app-header-crumbs">{crumbs}</div>
-      ) : (
-        <h1 className="app-header-title page-title">
-          {leading}
-          <span className="app-header-title-text">{title}</span>
-          {subtitle && <span className="app-header-subtitle">{subtitle}</span>}
-        </h1>
-      )}
-      {views && views.length > 0 && (
-        <nav aria-label={viewsLabel} className="app-header-views">
-          <div ref={list} className="app-header-views-list" onKeyDown={move}>
-            {views.map((option) => {
-              const current = option.value === view;
-              const button = (
-                <button
-                  key={option.value}
-                  id={option.id}
-                  type="button"
-                  className="app-header-view"
-                  aria-current={current ? 'page' : undefined}
-                  aria-label={option.ariaLabel}
-                  onClick={() => onViewChange?.(option.value)}
-                >
-                  {option.mark && (
-                    <IdentityMark kind={option.mark.kind} color={option.mark.color} slot={false} />
-                  )}
-                  {option.label}
-                  {!!option.count && <Count aria-hidden="true">{option.count}</Count>}
-                </button>
-              );
-              return option.hint ? (
-                <Hint key={option.value} label={option.hint} shortcut={option.shortcut}>
-                  {button}
-                </Hint>
-              ) : (
-                button
-              );
-            })}
+    <>
+      <header
+        data-slot="page-header"
+        data-page-head={hasViews ? (head ? 'title' : 'tabs') : undefined}
+        className={cn('app-header page-header', className)}
+        style={style}
+      >
+        {crumbs ? (
+          <div className="app-header-crumbs">{crumbs}</div>
+        ) : head ? (
+          // The crumb of a page with a title row. The title row below holds the heading.
+          <div className="app-header-title" aria-hidden="true">
+            {leading('lg')}
+            <span className="app-header-title-text">{title}</span>
           </div>
-        </nav>
+        ) : (
+          <h1 className="app-header-title page-title">
+            {leading('lg')}
+            <span className="app-header-title-text">{title}</span>
+            {subtitle && <span className="app-header-subtitle">{subtitle}</span>}
+          </h1>
+        )}
+        <span className="app-header-spacer" />
+        {actions && !head && (
+          <div className="app-header-actions page-header-actions">{actions}</div>
+        )}
+      </header>
+      {hasViews && (
+        <div className="page-head" data-title-row={head ? '' : undefined} style={style}>
+          {head && (
+            <div className="page-head-row">
+              <h1 className="page-head-title page-title">
+                {leading('lg')}
+                <span className="app-header-title-text">{title}</span>
+                {subtitle && <span className="app-header-subtitle">{subtitle}</span>}
+              </h1>
+              <span className="app-header-spacer" />
+              {actions && <div className="app-header-actions page-header-actions">{actions}</div>}
+            </div>
+          )}
+          <nav aria-label={viewsLabel} className="page-tabs">
+            <div ref={list} className="page-tabs-list" onKeyDown={move}>
+              {views!.map((option) => {
+                const current = option.value === view;
+                const button = (
+                  <button
+                    key={option.value}
+                    id={option.id}
+                    type="button"
+                    className="page-tab"
+                    aria-current={current ? 'page' : undefined}
+                    aria-label={option.ariaLabel}
+                    onClick={() => onViewChange?.(option.value)}
+                  >
+                    {option.mark && (
+                      <IdentityMark
+                        kind={option.mark.kind}
+                        color={option.mark.color}
+                        slot={false}
+                      />
+                    )}
+                    {option.label}
+                    {!!option.count && <Count aria-hidden="true">{option.count}</Count>}
+                  </button>
+                );
+                return option.hint ? (
+                  <Hint key={option.value} label={option.hint} shortcut={option.shortcut}>
+                    {button}
+                  </Hint>
+                ) : (
+                  button
+                );
+              })}
+            </div>
+          </nav>
+        </div>
       )}
-      <span className="app-header-spacer" />
-      {actions && <div className="app-header-actions page-header-actions">{actions}</div>}
-    </header>
+    </>
   );
 }
 

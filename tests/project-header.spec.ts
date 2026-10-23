@@ -1,6 +1,6 @@
 import { test, expect } from './helpers/app';
 
-test('every project view shows one header and the view switch keeps its place', async ({
+test('every project view shows one title bar, a title and the tabs in one place', async ({
   page,
 }) => {
   await page.goto('/');
@@ -14,20 +14,24 @@ test('every project view shows one header and the view switch keeps its place', 
     const tab = tabs.getByRole('button', { name, exact: true });
     await tab.click();
     await expect(tab).toHaveAttribute('aria-current', 'page');
-    // One 48px header on each view: the project name, the view switch and the project menu. It
-    // has no counts line and no New chat button. Project settings is an item of the menu.
+    // One 40px title bar on each view, with the project crumb. Overview and Tasks have the
+    // title row (the name and the project menu) under it; Knowledge has the tabs right under
+    // the title bar, and the crumb is the heading. There is no New chat button.
     const header = page.locator('.project-header');
     await expect(header).toHaveCount(1);
-    await expect(header.getByRole('heading', { name: 'Atlas', exact: true })).toBeVisible();
-    await expect(header).toHaveText('AtlasOverviewTasksKnowledge');
-    await expect(header.getByRole('button', { name: 'New chat', exact: true })).toHaveCount(0);
-    await expect(header.getByRole('button', { name: 'Project actions' })).toBeVisible();
-    await expect(header.getByRole('button', { name: 'Project settings' })).toHaveCount(0);
-    await expect(page.getByRole('main').locator('.page-header:visible')).toHaveCount(1);
-    expect((await header.boundingBox())!.height).toBe(48);
-    // The header keeps one height on every view, so the switch never moves.
-    const box = (await tabs.boundingBox())!;
-    expect([box.x, box.y, box.height]).toEqual([first.x, first.y, first.height]);
+    await expect(header).toContainText('Atlas');
+    const main = page.getByRole('main');
+    await expect(main.getByRole('heading', { name: 'Atlas', exact: true, level: 1 })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'New chat', exact: true })).toHaveCount(0);
+    await expect(main.getByRole('button', { name: 'Project actions' })).toBeVisible();
+    await expect(main.getByRole('button', { name: 'Project settings' })).toHaveCount(0);
+    await expect(main.locator('.page-header:visible')).toHaveCount(1);
+    expect((await header.boundingBox())!.height).toBe(40);
+    // Overview and Tasks keep the tabs in one place, so they never move between the two.
+    if (name !== 'Knowledge') {
+      const box = (await tabs.boundingBox())!;
+      expect([box.x, box.y, box.height]).toEqual([first.x, first.y, first.height]);
+    }
   }
   await page.screenshot({ path: 'test-results/project-header.png' });
 });

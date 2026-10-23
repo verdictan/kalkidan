@@ -109,12 +109,12 @@ test('Stop all with "Don\'t ask again" answers once, and Tools turns the questio
   await dialog.getByRole('button', { name: 'Stop all' }).click();
   await expect(dialog).toBeHidden();
   expect(await answers(page)).toEqual([{ id: 'q2', choice: 'stop', dontAsk: true }]);
-  // The main process saves "Don't ask again". Settings › Tools shows it below the SSH hosts
+  // The main process saves "Don't ask again". Settings › SSH hosts shows it below the hosts
   // and can turn it on again.
   await page.evaluate(() => ((window as any).asks = false));
   const settings = await openSettingsWindow(page, 'Tools');
   const toggle = settings
-    .getByRole('region', { name: 'Tools', exact: true })
+    .getByRole('region', { name: 'SSH hosts', exact: true })
     .getByRole('switch', { name: 'Ask before quitting while SSH work runs' });
   await expect(toggle).not.toBeChecked();
   await toggle.click();

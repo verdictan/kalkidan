@@ -163,11 +163,7 @@ function TreeRow({
   return (
     <div
       {...rest}
-      className={
-        'tree-row' +
-        (selected ? ' selected id-tint-sidebar' : '') +
-        (className ? ' ' + className : '')
-      }
+      className={'tree-row' + (selected ? ' selected' : '') + (className ? ' ' + className : '')}
       data-kind={kind}
       data-depth={depth}
       style={{ '--depth': depth, '--id': `var(--id-${color})` } as CSSProperties}
@@ -243,6 +239,7 @@ export function ProjectTree({
   onNewChatIn,
   repoActions,
   usage,
+  scopeLinks,
 }: {
   api: API;
   allRepos: Project[];
@@ -294,6 +291,8 @@ export function ProjectTree({
   repoActions?: (repo: Project) => TreeAction[];
   /** The props of the Usage row of the project menu. */
   usage?: { sessions: Session[]; repos: Project[] };
+  /** A project window: the rows after the tree, Tasks and Knowledge (SH-A3). */
+  scopeLinks?: ReactNode;
 }) {
   const [renaming, setRenaming] = useState<ProjectGroup | null>(null);
   const [reconnecting, setReconnecting] = useState('');
@@ -842,7 +841,9 @@ export function ProjectTree({
               </div>
             ))}
         </div>
-      ) : (
+      ) : null}
+      {scoped && scopeLinks}
+      {scoped ? null : (
         <>
           {/* The root of the tree. It opens the Projects page. */}
           <div className={'tree-root' + (projectsCurrent ? ' selected' : '')}>

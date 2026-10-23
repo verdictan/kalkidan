@@ -3,13 +3,14 @@ import { Plus } from 'lucide-react';
 import { agentCatalog, agentLabel } from '../config/agents';
 import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
 import { sessionRepo } from '../lib/session-repository';
+import { relativeTime } from '../lib/relative-time';
 import type { WorkingStatus } from '../api/contracts';
 import type { API, Agent, Project, ProjectGroup, Session } from '../types';
 import type { WorkspaceIdentity } from '../hooks/use-workspace-identity';
 import { activityKey, answerApproval, useActivityState } from './activity-dot';
 import { requestNewChat, usePreferredAgent } from './new-chat-button';
 import { useNeedsYou } from './project-overview';
-import { Composer, RepoPill } from './composer';
+import { Composer, NewChatAccessPill, RepoPill } from './composer';
 import { AgentPicker } from './model-chip';
 import { Button } from './ui/button';
 import { Hint } from './hint';
@@ -103,6 +104,7 @@ function HomeComposer({
             onPick={(id) => setRepoId(id)}
             onAdd={onAddFolder}
           />
+          <NewChatAccessPill repoId={repo?.id} />
           <AgentPicker
             api={api}
             agent={agent}
@@ -194,12 +196,28 @@ export function ProjectHomePage({
             {needsYou.map(({ session, repo, reason, state }) => {
               const title = titleOf(session);
               const approval = state === 'approval' ? approvalOf(session) : undefined;
-              const detail = [
-                repo.name,
-                approval ? [approval.title, approval.detail].filter(Boolean).join(' ') : reason,
-              ]
-                .filter(Boolean)
-                .join(' · ');
+              // SH-A1: "Wants to run `npm test -- auth` · atlas-web · 2m".
+              const when = relativeTime(session.updatedAt);
+              const detail = (
+                <>
+                  {approval ? (
+                    <>
+                      {approval.title}
+                      {approval.detail && (
+                        <>
+                          {' '}
+                          <code className="needs-you-command">{approval.detail}</code>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    reason
+                  )}
+                  {' · '}
+                  {repo.name}
+                  {when && ` · ${when}`}
+                </>
+              );
               return (
                 <Row
                   key={activityKey(session.agent, session.id)}
@@ -215,7 +233,7 @@ export function ProjectHomePage({
                     state === 'approval' ? (
                       <>
                         <Button
-                          variant="secondary"
+                          variant="ghost"
                           size="sm"
                           className="needs-you-deny"
                           aria-label={`Deny ${title}`}

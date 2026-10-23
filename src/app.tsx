@@ -54,7 +54,7 @@ import {
   sessionActionState,
 } from './domain/chat-actions';
 import { useTracker } from './hooks/use-tracker';
-import { SettingsPage } from './components/settings-page';
+import { SettingsSheet } from './components/settings-page';
 import { Welcome, useWelcomeGate } from './components/welcome';
 import { hideSplash } from './lib/splash';
 import { ProxySignInDialog } from './components/proxy-sign-in';
@@ -67,7 +67,6 @@ import { ProjectOverview, useNeedsYou } from './components/project-overview';
 import { useWorkspaceIdentity } from './hooks/use-workspace-identity';
 import { currentWindowScope } from './lib/window-scope';
 import { IdentityMark } from './components/ui/identity-mark';
-import { NavRow } from './components/ui/nav-row';
 import { Hint } from './components/hint';
 import { CreateProject } from './components/create-project';
 import {
@@ -121,10 +120,11 @@ import {
   Trash,
   Download,
   Layers2,
-  BookOpen,
   Search,
   ArchiveRestore,
   MessageSquarePlus,
+  ListTodo,
+  NotebookText,
   type LucideIcon,
 } from 'lucide-react';
 import { ConfirmDialog } from './components/confirm-dialog';
@@ -142,6 +142,7 @@ import {
 import { AgentIcon } from './components/ui/agent-icon';
 import { Textarea } from './components/ui/textarea';
 import { PageHeader } from './components/ui/page-header';
+import { NavRow } from './components/ui/nav-row';
 import { ProjectTrackerPanel } from './components/project-tracker';
 import { Choice } from './components/choice';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './components/ui/collapsible';
@@ -287,9 +288,12 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     section: SettingsSection;
     anchor?: string;
   }>({ section: 'general' });
+  // Settings is a sheet over the current page (ST-C4), not a page of its own.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsRequest, setSettingsRequest] = useState(0);
   const settingsOpenRef = useRef(false);
   const settingsGroup = useRef<string | undefined>(undefined);
-  settingsOpenRef.current = route.kind === 'settings';
+  settingsOpenRef.current = settingsOpen;
   /**
    * Opens the one Settings window at a section: 'general', 'computers', 'account' or
    * 'project:<id>'. Older section names and anchors, such as 'accounts', open their new place.
@@ -308,11 +312,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     if (dialogOpen())
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     setSettings({ section: target.tab, anchor: target.anchor });
-    navigate((current) =>
-      current.kind === 'settings' && current.tab === target.tab
-        ? current
-        : { kind: 'settings', tab: target.tab },
-    );
+    setSettingsRequest((count) => count + 1);
+    setSettingsOpen(true);
   }
   // The first-run Welcome screen: before the workspace, until the user signs in or skips it.
   const welcome = useWelcomeGate(api, preview);
@@ -505,6 +506,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       if (key === '/' && preview) {
         event.preventDefault();
         if (!dialogOpen()) setShortcutsOpen(true);
+      } else if (key === ',') {
+        // Mod+, opens Settings: in the browser preview, and signed out, where the account menu
+        // has no Settings item. The desktop menu can send the same command; opening is idempotent.
+        event.preventDefault();
+        if (!dialogOpen()) commandRef.current('settings');
       } else if (key === 'k') {
         // Mod+K always opens search. In a doc, Mod+L adds a link.
         event.preventDefault();
@@ -2163,11 +2169,21 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   useEffect(() => {
     if (scopedName) document.title = scopedName;
   }, [scopedName]);
+  // The browser preview has no window buttons. It draws their place, as the desktop app on a
+  // Mac does, so the title bar keeps the same layout.
+  const windowLights = preview && (
+    <span className="window-lights" aria-hidden="true">
+      <i />
+      <i />
+      <i />
+    </span>
+  );
   // The Welcome screen fills the window before the workspace shows.
   if (welcome.show === undefined) return <div className="app-shell" aria-busy="true" />;
   if (welcome.show)
     return (
       <>
+        {windowLights && <div className="titlebar-controls">{windowLights}</div>}
         <Welcome
           api={api}
           onDone={(result) => {
@@ -2183,9 +2199,11 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
     );
   const scoped = scopeGroup ? data.groups?.find((g) => g.id === scopeGroup) : undefined;
   // Settings shows the project that the user was in.
-  if (route.kind !== 'settings') settingsGroup.current = currentProjectGroup()?.id;
+  if (!settingsOpen) settingsGroup.current = currentProjectGroup()?.id;
   const parentName = currentGroup?.name || (scoped ? scoped.name : 'Projects');
-  const chatColor = chatOpen && chatSession ? identity.session(chatSession) : undefined;
+  // ST-C2: before the first project, the window is the composer only. There is no sidebar.
+  const noProjects = !scoped && data.groups?.length === 0 && !chatOpen;
+  const sidebarShown = navigationOpen && !noProjects;
   const menuButton = !isMac && !preview && api.showAppMenu && (
     <Hint label="Menu">
       <Button
@@ -2203,13 +2221,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       className={
         'app-shell' +
         (!preview ? ' desktop-app' : '') +
-        (!navigationOpen ? ' navigation-collapsed' : '') +
+        (!navigationOpen && !noProjects ? ' navigation-collapsed' : '') +
+        (noProjects ? ' no-projects' : '') +
         (chatOpen ? ' conversation-open' : '') +
         (scoped ? ' project-window' : '')
       }
       style={
         {
-          '--navigation-width': navigationOpen ? sidebar.width + 'px' : '0px',
+          '--navigation-width': sidebarShown ? sidebar.width + 'px' : '0px',
           ...(scoped ? { '--id': `var(--id-${identity.project(scoped)})` } : {}),
         } as CSSProperties
       }
@@ -2228,14 +2247,35 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       <nav
         ref={sidebarRef}
         className="library-panel"
-        hidden={!navigationOpen}
+        hidden={!sidebarShown}
         aria-label={scoped ? `${scoped.name} code folders` : 'Projects and repositories'}
       >
         {/* The top of the sidebar is the title bar: the window buttons, then the toggle. A
             project window shows the project mark and name there. */}
         <div className={'sidebar-top' + (!preview ? ' desktop-titlebar' : '')}>
+          {windowLights}
           {menuButton}
-          {scoped ? (
+          <span className="sidebar-top-space" />
+          {/* A project window: Search is an icon next to the sidebar toggle (SH-A3). */}
+          {scoped && (
+            <Hint label="Search" shortcut={shortcutLabel(['mod'], 'K')}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Search or run a command"
+                aria-haspopup="dialog"
+                aria-expanded={searchOpen}
+                onClick={() => setSearchOpen(true)}
+              >
+                <Search />
+              </Button>
+            </Hint>
+          )}
+          {navigationToggle}
+        </div>
+        {/* A project window: the project mark and name, and New chat as an icon (SH-A3). */}
+        {scoped && (
+          <div className="sidebar-project">
             <button
               type="button"
               className="sidebar-project-open"
@@ -2249,13 +2289,22 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
               <IdentityMark kind="project" color={identity.project(scoped)} size="lg" />
               <span className="sidebar-project-name">{scoped.name}</span>
             </button>
-          ) : (
-            <span className="sidebar-top-space" />
-          )}
-          {navigationToggle}
-        </div>
+            <Hint label="New chat" shortcut={shortcutLabel(['mod'], 'N')}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="sidebar-project-action"
+                aria-label="New chat"
+                onClick={() => newChat()}
+              >
+                <SquarePen />
+              </Button>
+            </Hint>
+          </div>
+        )}
         <WorkspaceSearch
           api={api}
+          trigger={!scoped}
           open={searchOpen}
           onOpenChange={setSearchOpen}
           projects={data.projects}
@@ -2334,29 +2383,31 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           }}
           onNotice={notify}
           onRefresh={reload}
-          onNewChat={() => newChat()}
+          onNewChat={scoped ? undefined : () => newChat()}
           onNewChatIn={(group, repo) =>
             repo ? startSession(preferredAgent, repo) : newChatIn(group)
           }
           repoActions={repoActions}
           usage={{ sessions: data.sessions, repos: data.projects }}
+          scopeLinks={
+            scoped && (
+              <div className="tree-scope-links" role="group" aria-label={`${scoped.name} pages`}>
+                <NavRow
+                  icon={<ListTodo />}
+                  label="Tasks"
+                  current={boardGroup === scoped.id && projectPage === 'tasks' && !chatOpen}
+                  onClick={() => openGroup(scoped, 'tasks')}
+                />
+                <NavRow
+                  icon={<NotebookText />}
+                  label="Knowledge"
+                  current={boardGroup === scoped.id && projectPage === 'knowledge' && !chatOpen}
+                  onClick={() => openGroup(scoped, 'knowledge')}
+                />
+              </div>
+            )
+          }
         />
-        {scoped && (
-          <div className="sidebar-views" role="group" aria-label={`${scoped.name} views`}>
-            <NavRow
-              icon={<ListChecks />}
-              label="Tasks"
-              current={boardGroup === scoped.id && projectPage === 'tasks' && !chatOpen}
-              onClick={() => openGroup(scoped, 'tasks')}
-            />
-            <NavRow
-              icon={<BookOpen />}
-              label="Knowledge"
-              current={boardGroup === scoped.id && projectPage === 'knowledge' && !chatOpen}
-              onClick={() => openGroup(scoped, 'knowledge')}
-            />
-          </div>
-        )}
         <div className="sidebar-footer">
           {signInLost && connectionGroup && (
             <Button
@@ -2382,12 +2433,14 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           </div>
         </div>
       </nav>
-      {navigationOpen && <SidebarResizer {...sidebar} />}
-      {/* With the sidebar hidden, its toggle stays in the title bar, after the window buttons. */}
-      {!navigationOpen && (
+      {sidebarShown && <SidebarResizer {...sidebar} />}
+      {/* With the sidebar hidden, its toggle stays in the title bar, after the window buttons.
+          Before the first project, there is no sidebar and so no toggle. */}
+      {!sidebarShown && (
         <div className={'titlebar-controls' + (!preview ? ' desktop-titlebar' : '')}>
+          {windowLights}
           {menuButton}
-          {navigationToggle}
+          {!noProjects && navigationToggle}
         </div>
       )}
       <main id="main-content" tabIndex={-1}>
@@ -2396,7 +2449,6 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           <PageHeader
             className="conversation-header"
             crumbs={<div id="conversation-titlebar-heading" className="conversation-crumbs" />}
-            tint={chatColor}
             actions={
               <>
                 <div id="conversation-titlebar-tabs" />
@@ -2427,29 +2479,7 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
           <div className="workspace-grid">
             <div className="project-content">
               <div className="management-pane" hidden={chatOpen}>
-                {route.kind === 'settings' ? (
-                  <div className="project-frame" data-page="settings">
-                    <PageHeader title="Settings" />
-                    <div className="project-frame-body">
-                      <section className="page settings-page-frame" aria-label="Settings">
-                        <SettingsPage
-                          api={api}
-                          groups={data.groups || []}
-                          repos={data.projects}
-                          section={settings.section}
-                          anchor={settings.anchor}
-                          currentGroupId={settingsGroup.current}
-                          onRefresh={refresh}
-                          onClose={() => {
-                            void reload();
-                            if (navigation.canBack) navigation.back();
-                            else openOverview();
-                          }}
-                        />
-                      </section>
-                    </div>
-                  </div>
-                ) : currentGroup ? (
+                {currentGroup ? (
                   <ProjectFrame
                     api={api}
                     group={currentGroup}
@@ -2591,6 +2621,21 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       <Toaster resetKey={routeKey(basePage)} />
       <SshQuitDialog api={api} />
       <SignInFlow api={api} />
+      <SettingsSheet
+        open={settingsOpen}
+        api={api}
+        groups={data.groups || []}
+        repos={data.projects}
+        section={settings.section}
+        anchor={settings.anchor}
+        request={settingsRequest}
+        currentGroupId={settingsGroup.current}
+        onRefresh={refresh}
+        onClose={() => {
+          setSettingsOpen(false);
+          void reload();
+        }}
+      />
       <ProjectUsageSheetHost
         api={api}
         groups={data.groups || []}

@@ -60,7 +60,7 @@ test('Settings has no horizontal overflow with long names and paths', async ({ p
     { path: longPath, host: longHost },
   );
   await page.goto('/');
-  // From 900px wide, the sidebar starts open. Settings shows beside it.
+  // From 900px wide, the sidebar starts open. The Settings sheet shows over it.
   await expect(page.getByRole('navigation', { name: 'Projects and repositories' })).toBeVisible();
   const settings = await openSettingsWindow(page, 'Tools');
   await expect(settings.getByRole('list', { name: longHost, exact: true })).toBeVisible();
@@ -71,8 +71,8 @@ test('Settings has no horizontal overflow with long names and paths', async ({ p
   // The path of a tool is its tooltip, not text in the row.
   await expect(settings).not.toContainText(longPath);
   await expect(settings.getByRole('listitem', { name: longPath + '-codex' }).first()).toBeVisible();
-  // The page and the frame that scrolls it fit in the window.
-  const frame = page.locator('.project-frame-body:has([data-testid="settings-page"])');
+  // The sheet and the body that scrolls it fit in the window.
+  const frame = page.locator('.st-sheet-body');
   const overflow = await frame.evaluate((pane) => {
     const right = pane.getBoundingClientRect().right;
     const wide = [...pane.querySelectorAll<HTMLElement>('*')].filter((node) => {

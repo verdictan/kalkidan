@@ -180,9 +180,8 @@
   --menu-width: 224px;
   --menu-width-wide: 256px;
   /* Layout */
-  /* The one 48px header: identity mark, title, view switch and actions. It is also the title
-     bar. */
-  --header-height: 48px;
+  /* The title bar: the crumb and the actions. */
+  --header-height: 40px;
   --titlebar-height: var(--header-height);
   --page-max-width: 1120px;
   --page-padding-x: 32px;

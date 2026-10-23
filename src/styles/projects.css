@@ -1,10 +1,10 @@
 /* The window: the sidebar on the left (its top is the title bar there), then the main area.
-   Every page has one 48px header at the top of the main area. It is also the title bar. */
+   Every page has one 40px title bar at the top of the main area. */
 .app-shell {
   height: 100dvh;
   display: flex;
   flex-direction: column;
-  --titlebar-height: var(--header-height, 48px);
+  --titlebar-height: var(--header-height, 40px);
   /* The side padding of every page: 32px, 16px below 1000px. */
   --frame-x: var(--page-padding-x);
   /* The space of the controls in the title bar when the sidebar is hidden. */
@@ -61,6 +61,15 @@
 }
 /* With the sidebar hidden, the header starts after the window buttons and the toggle. */
 [data-platform='mac']:not([data-fullscreen='true']) .desktop-app {
+  --collapsed-controls: 116px;
+}
+/* A project window: Tasks and Knowledge under the tree (SH-A3). */
+.tree-scope-links {
+  display: grid;
+  margin-top: var(--space-4);
+}
+/* The browser preview draws the place of the window buttons too. */
+.app-shell:not(.desktop-app) {
   --collapsed-controls: 116px;
 }
 .navigation-collapsed .app-header {
@@ -123,7 +132,7 @@ main:focus {
   min-width: 0;
   min-height: 0;
 }
-/* The sidebar: the full height of the window. Its top 48px is the title bar. */
+/* The sidebar: the full height of the window. Its top 40px is the title bar. */
 .library-panel {
   position: fixed;
   top: 0;
@@ -157,10 +166,21 @@ main:focus {
 .sidebar-top-space {
   flex: 1;
 }
-/* A project window: the title bar takes 8% of the project color. */
-.project-window .sidebar-top,
-.project-window .app-header:not([data-tinted]) {
-  background: var(--id-tint-window);
+/* The place of the window buttons in the browser preview: three 12px circles, 8px apart. */
+.window-lights {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+.window-lights i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--border);
+}
+.titlebar-controls .window-lights {
+  margin: 0 var(--space-2);
 }
 /* A project window: a 3px line in the project color on the top edge of the window. */
 .project-window::before {
@@ -172,11 +192,20 @@ main:focus {
   background: var(--id);
   pointer-events: none;
 }
-/* The project of a project window, in the title bar: its 16px square and its name. */
+/* The project of a project window, under the title bar: its 16px square, its name and New
+   chat (SH-A3). */
+.sidebar-project {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: var(--space-1) 0 var(--space-2);
+  padding-right: 4px;
+}
 .sidebar-project-open {
   flex: 1;
   min-width: 0;
-  height: 28px;
+  height: 32px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -186,8 +215,8 @@ main:focus {
   background: none;
   color: var(--foreground);
   font: inherit;
-  font-size: var(--text-base);
-  line-height: 24px;
+  font-size: 14px;
+  line-height: 20px;
   font-weight: 600;
   text-align: left;
   -webkit-app-region: no-drag;
@@ -204,11 +233,6 @@ main:focus {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.sidebar-views {
-  flex-shrink: 0;
-  display: grid;
-  margin-top: var(--space-2);
 }
 .search-trigger {
   display: flex;
@@ -323,7 +347,7 @@ main:focus {
   background: var(--sidebar-hover);
 }
 .tree-row.selected {
-  background: var(--id-tint-sidebar);
+  background: var(--sidebar-selected);
 }
 .tree-row:has(.tree-row-button:focus-visible) {
   box-shadow: inset 0 0 0 2px var(--ring);
@@ -1563,7 +1587,7 @@ button.tracker-task-chip:focus-visible {
   display: grid;
   place-items: start center;
   height: 100%;
-  padding-top: max(var(--space-8), calc(50vh - 200px));
+  padding-top: max(var(--space-8), calc(50vh - 172px));
 }
 .start-composer {
   display: grid;
@@ -1574,8 +1598,11 @@ button.tracker-task-chip:focus-visible {
 .start-composer > :last-child {
   justify-self: stretch;
 }
+.start-composer-mark {
+  margin-bottom: var(--space-2);
+}
 .start-composer-title {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-2);
   font-size: var(--text-xl);
   line-height: 28px;
   font-weight: 600;
@@ -1588,14 +1615,17 @@ button.tracker-task-chip:focus-visible {
 }
 /* Settings and the shortcuts button share the last sidebar row. */
 /* The sidebar footer: a board sign-in warning, Get started, then the account row. The top
-   edge goes across the full sidebar. The account row is 44px, its text 16px from the edge. */
+   edge goes across the full sidebar. The account row is 56px, its avatar 16px from the edge. */
 .sidebar-footer {
   flex-shrink: 0;
   display: grid;
   gap: var(--space-1);
-  margin: var(--space-2) calc(-1 * var(--space-2)) calc(-1 * var(--space-2));
+  margin: var(--space-2) calc(-1 * var(--space-2)) 0;
   padding: 0 var(--space-2);
   border-top: 1px solid var(--border);
+}
+.sidebar-footer-row {
+  min-height: 56px;
 }
 .sidebar-footer > :first-child:not(.sidebar-footer-row) {
   margin-top: var(--space-2);
@@ -3299,7 +3329,7 @@ button.tracker-task-chip:focus-visible {
   position: absolute;
   inset: -4px;
 }
-/* Every page: the one 48px header stays at the top; only the body below it scrolls. */
+/* Every page: the title bar and the page head stay at the top; only the body scrolls. */
 .management-pane:has(> .project-frame) {
   padding: 0;
   overflow: hidden;
@@ -3321,6 +3351,13 @@ button.tracker-task-chip:focus-visible {
   overflow: auto;
   padding: var(--page-padding-top) var(--frame-x) var(--page-padding-bottom);
 }
+/* Under the tabs, the view starts 24px lower (SH-A1). */
+.page-head + .project-frame-body {
+  padding-top: var(--space-6);
+}
+.project-frame[data-page='tasks'] .page-head + .project-frame-body {
+  padding-top: var(--space-4);
+}
 .project-frame-body > .page {
   max-width: var(--content-max);
   padding: 0;
@@ -3332,6 +3369,12 @@ button.tracker-task-chip:focus-visible {
 .project-frame[data-page='knowledge'] .project-frame-body {
   padding: 0;
   overflow: hidden;
+}
+/* Knowledge (KN-B): the crumb and the tabs start 24px from the sidebar. */
+@media (min-width: 1000px) {
+  .project-frame[data-page='knowledge'] {
+    --frame-x: 24px;
+  }
 }
 /* The controls that a view puts in the header, before the project menu. */
 .project-header-actions {
@@ -3668,7 +3711,85 @@ button.tracker-task-chip:focus-visible {
 .navigation-collapsed .project-frame-body:not([data-page='knowledge'] *) {
   padding-left: calc(var(--collapsed-controls) + var(--space-3));
 }
-/* A project window: a gap between New chat and the repos. */
-.project-window .tree-new-chat {
-  margin-bottom: var(--space-2);
+/* The Projects page (SP-C2): a table with Name, Activity and Updated. Rows are 48px with a
+   line under each. */
+.projects-table-head,
+.projects-table-row {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr) 80px;
+  align-items: center;
+  column-gap: var(--space-3);
+}
+.projects-table-head {
+  height: 32px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+.projects-table-head > :last-child,
+.projects-table-updated {
+  text-align: right;
+}
+.projects-table-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.projects-table-row {
+  width: 100%;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: default;
+}
+.projects-table-row:hover {
+  background: var(--surface-hover);
+}
+.projects-table-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+.projects-table-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  font-weight: 500;
+}
+.projects-table-name [data-slot='identity-mark'] {
+  width: 12px;
+  height: 12px;
+}
+.projects-table-activity {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted-foreground);
+}
+.projects-table-updated {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+/* Before the first project there is no sidebar (ST-C2). The top strip still moves the window. */
+.no-projects .titlebar-controls {
+  right: 0;
+  -webkit-app-region: drag;
+}
+.projects-table-activity .status-glyph {
+  margin: 0;
+}
+/* SH-A1: Deny is a text button in the foreground color; the command is monospace. */
+.needs-you-row .needs-you-deny {
+  color: var(--foreground);
+}
+.needs-you-command {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
 }

@@ -8,9 +8,8 @@ const statusLabels: Record<Exclude<ItemStatus, 'idle'>, string> = {
 };
 
 /**
- * The status of an item: a 16px slot after the name, never in the leading slot. Working is an
- * 8px neutral spinner, needs you is a 14px amber circle with a white "!", failed is a 10px red
- * cross. Idle shows nothing; the time goes in the meta. It never truncates.
+ * The status of an item: a 16px slot after the name, never in the leading slot. Working is a
+ * 10px neutral spinner, needs you is a plain amber "!", failed is a 10px red cross. Idle shows nothing; the time goes in the meta. It never truncates.
  */
 export function StatusGlyph({
   status,

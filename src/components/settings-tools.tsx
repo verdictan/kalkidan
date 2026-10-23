@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import type { API, RemoteHost } from '../types';
 import {
-  toolDetail,
   toolInstallUrls,
   toolNames,
   type ComputerTools,
@@ -35,6 +34,9 @@ import { menuDestructiveClass } from './ui/menu-styles';
 import { MoreButton } from './ui/more-button';
 import { Switch } from './ui/switch';
 import { showToast } from './ui/toast';
+
+/** Opens the "Add SSH host" field under the Tools rows, for example from the last line. */
+export const addSshHostEvent = 'kalkidan-add-ssh-host';
 
 /** The short region names of the Tools line: "Through Verdictan · EU". */
 const regionShortNames: Record<string, string> = { eu: 'EU', us: 'US' };
@@ -211,37 +213,25 @@ export function RestartLine({ api, button = false }: { api: API; button?: boolea
 }
 
 /**
- * Settings › Tools: the agent CLIs and the GitHub CLI that Kalkidan finds on this computer and
- * on each SSH host. Kalkidan does not install, update, sign in to or set up these tools. A tool
- * that is not ready links to its official page. "Check again" runs a new check.
+ * Settings › Tools: the agent CLIs and the GitHub CLI that Kalkidan finds on this computer.
+ * Kalkidan does not install, update, sign in to or set up these tools. A tool that is not ready
+ * links to its official page. "Check again" runs a new check. The SSH hosts are in their own
+ * part, lower on the page (`HostsPart`).
  */
 export function ToolsPart({ api, open }: { api: API; open: boolean }) {
   const tools = useComputerTools(api, open);
   const { status } = useVerdictanStatus(api, open);
-  const { hosts, setHosts } = useRemoteHosts(api, open);
-  const [adding, setAdding] = useState(false);
   const region = status?.region ? regionShortNames[status.region] : '';
   const local = tools.local;
   return (
     <section className="st-section" id="settings-tools" aria-labelledby="settings-tools-label">
       <div className="st-section-head">
         <h2 id="settings-tools-label">Tools</h2>
-        {!adding && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="st-head-action"
-            onClick={() => setAdding(true)}
-          >
-            <Plus aria-hidden="true" />
-            Add SSH host
-          </Button>
-        )}
         {tools.supported && (
           <Button
             variant="ghost"
             size="sm"
-            className="st-head-action"
+            className="st-head-action h-6 px-0 hover:bg-transparent has-[>svg]:px-0"
             disabled={tools.checking}
             onClick={() => void tools.checkAgain()}
           >
@@ -271,6 +261,43 @@ export function ToolsPart({ api, open }: { api: API; open: boolean }) {
         </span>
         <RestartLine api={api} />
       </p>
+    </section>
+  );
+}
+
+/**
+ * Settings › SSH hosts: each saved SSH host with its tools and a ⋯ menu (Connect or
+ * Disconnect, Remove host…), "Add SSH host", the quit question, and the saved proxy sign-ins.
+ * The part shows only when there is a host, a proxy sign-in, or the "Add SSH host" field
+ * ("Add SSH host…" in the last line opens it).
+ */
+export function HostsPart({ api, open }: { api: API; open: boolean }) {
+  const tools = useComputerTools(api, open);
+  const { hosts, setHosts } = useRemoteHosts(api, open);
+  const [adding, setAdding] = useState(false);
+  const section = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const onAdd = () => {
+      setAdding(true);
+      requestAnimationFrame(() =>
+        section.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+      );
+    };
+    window.addEventListener(addSshHostEvent, onAdd);
+    return () => window.removeEventListener(addSshHostEvent, onAdd);
+  }, []);
+  const proxies = <ProxySignIns api={api} active={open} />;
+  if (!hosts.length && !adding) return proxies;
+  return (
+    <section
+      ref={section}
+      className="st-section"
+      id="settings-hosts"
+      aria-labelledby="settings-hosts-label"
+    >
+      <div className="st-section-head">
+        <h2 id="settings-hosts-label">SSH hosts</h2>
+      </div>
       {hosts.map((host) => (
         <HostTools
           key={host.id}
@@ -280,7 +307,12 @@ export function ToolsPart({ api, open }: { api: API; open: boolean }) {
           onRemoved={(id) => setHosts((current) => current.filter((item) => item.id !== id))}
         />
       ))}
-      {hosts.length > 0 && <SshQuitRow api={api} />}
+      {!adding && (
+        <Button variant="ghost" size="sm" className="st-add-host" onClick={() => setAdding(true)}>
+          <Plus aria-hidden="true" />
+          Add SSH host
+        </Button>
+      )}
       {adding && (
         <AddHostForm
           api={api}
@@ -294,7 +326,8 @@ export function ToolsPart({ api, open }: { api: API; open: boolean }) {
           }}
         />
       )}
-      <ProxySignIns api={api} active={open} />
+      {hosts.length > 0 && <SshQuitRow api={api} />}
+      {proxies}
     </section>
   );
 }
@@ -471,17 +504,4 @@ function ProxySignIns({ api, active }: { api: API; active: boolean }) {
       )}
     </section>
   );
-}
-
-/** One line for the first-run tools check: the detail of the tool, ending with the gateway. */
-export function checkDetail(tool: ToolStatus) {
-  const detail = toolDetail(tool);
-  if (tool.kind !== 'agent' || tool.state !== 'ready') return detail.replace(/ · S/, ' · s');
-  return [
-    detail.replace(/ · S/, ' · s'),
-    tool.access === 'granted' ? 'access granted' : '',
-    'through Verdictan',
-  ]
-    .filter(Boolean)
-    .join(' · ');
 }

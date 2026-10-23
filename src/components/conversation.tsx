@@ -12,6 +12,7 @@ import {
 import { PolicyResultCard } from './policy-result';
 import { addPolicyRecords, chatPolicyLimit, type PolicyRecord } from '../domain/policy-result';
 import { AgentActivity } from './agent-activity';
+import { SubagentCards, subagentCardId } from './subagent-card';
 import { ComposerAsk, waitingRequest } from './agent-questions';
 import { useContextUsage } from './context-usage-chip';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
@@ -20,6 +21,7 @@ import { agentCatalog, agentLabel } from '../config/agents';
 import { ConfirmDialog } from './confirm-dialog';
 import { ShipFooter, reportChatMenuState } from './session-menu';
 import { AgentPicker } from './model-chip';
+import { shortChatTitle } from '../domain/chat-title';
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   AtSign,
@@ -53,7 +55,6 @@ import { composerAfterSubmit, contextsAfterSubmit } from '../lib/composer-draft'
 import {
   moveTaskToReview,
   pullRequestActionLabel,
-  pullRequestTitle,
   type SessionPullRequest,
 } from '../lib/pull-request';
 import type { ProjectDocMetadata } from '../domain/docs';
@@ -91,13 +92,13 @@ import {
   removeMentionBefore,
 } from '../domain/mentions';
 import { pathBasename, plural, shortcutLabel } from '../lib/platform';
-import { onChatPreferencesChange, readEnterToSend } from '../lib/chat-preferences';
+import { onChatPreferencesChange, readEnterToSend, newChatAccess } from '../lib/chat-preferences';
 import {
   Composer,
   ComposerAddMenu,
+  AccessPill,
   RepoPill,
   composerPlaceholderFor,
-  defaultAccess,
   readAccess,
   saveAccess,
   takeNextChatModel,
@@ -210,6 +211,38 @@ function SentMentions({ text }: { text: string }) {
         </span>
       ))}
     </div>
+  );
+}
+
+/**
+ * The state chip of the pull request row (CH-B5). An open pull request shows its CI checks:
+ * "Checks pass", "Checks failing" or "Checks running". Without checks it shows "Open".
+ */
+function PullRequestState({ value }: { value: SessionPullRequest }) {
+  const state = value.state || 'open';
+  const shown =
+    state !== 'open'
+      ? { key: state, label: state === 'merged' ? 'Merged' : 'Closed' }
+      : value.draft
+        ? { key: 'draft', label: 'Draft' }
+        : value.checks === 'fail'
+          ? { key: 'fail', label: 'Checks failing', icon: <X aria-hidden="true" /> }
+          : value.checks === 'pending'
+            ? {
+                key: 'pending',
+                label: 'Checks running',
+                icon: <LoaderCircle className="animate-spin" aria-hidden="true" />,
+              }
+            : {
+                key: value.checks === 'pass' ? 'pass' : 'open',
+                label: value.checks === 'pass' ? 'Checks pass' : 'Open',
+                icon: <Check aria-hidden="true" />,
+              };
+  return (
+    <span className="pr-row-state" data-state={shown.key}>
+      {shown.icon}
+      {shown.label}
+    </span>
   );
 }
 
@@ -393,17 +426,19 @@ export function Conversation({
   async function refreshPullRequest(current = pullRequest) {
     if (!current || !repositoryId || !api.pullRequestStatus) return current;
     const status = await api.pullRequestStatus(repositoryId, current.url);
-    const { draft: _draft, ...rest } = current;
+    const { draft: _draft, checks: _checks, ...rest } = current;
     const next = {
       ...rest,
       state: status.state,
       number: status.number || current.number,
       ...(status.draft ? { draft: true } : {}),
+      ...(status.checks ? { checks: status.checks } : {}),
     };
     if (
       next.state !== current.state ||
       next.number !== current.number ||
-      !!next.draft !== !!current.draft
+      !!next.draft !== !!current.draft ||
+      next.checks !== current.checks
     ) {
       setPullRequest(next);
       void saveOrganization({ pullRequest: next }).catch(() => {
@@ -538,11 +573,10 @@ export function Conversation({
       current = false;
     };
   }, [api, projectGroup?.id, taskId]);
-  // Access (round 11): each chat edits its own branch, so a chat can edit files. "Read only" is
-  // in the chat menu. The last choice in the code folder and the Settings switch "New chats can
-  // edit files" apply when the user made one.
-  const storedPermission = readAccess(repositoryId) || defaultAccess();
-  const [allowEdits, setAllowEdits] = useState(() => storedPermission !== 'read');
+  // Access: the chip in the composer shows "Can edit" or "Read only". The last choice in the
+  // code folder comes first, then the Settings choice. Without a choice, a new chat can edit.
+  const storedPermission = readAccess(repositoryId) || newChatAccess();
+  const [allowEdits, setAllowEdits] = useState(() => storedPermission === 'edit');
   function choosePermission(value: ChatAccess) {
     permissionTouched.current = true;
     setAllowEdits(value === 'edit');
@@ -665,7 +699,7 @@ export function Conversation({
               }),
       });
       if (!providerSession.current && !messagesBefore.current)
-        onTitleChange?.(sent.prompt.trim().split('\n', 1)[0].slice(0, 100));
+        onTitleChange?.(shortChatTitle(sent.prompt));
     } else if (next.error) setError(next.error);
     if (!runEdits.current && next.status !== 'stopped' && refusedWrite(next)) setEditsRefused(true);
     setRunsFinished((n) => n + 1);
@@ -697,7 +731,7 @@ export function Conversation({
     setContexts([]);
     // A new chat takes a short title from the message at once, as at a usual first send.
     if (session.projectId && !providerSession.current && !messages.length && !taskId)
-      onTitleChange?.(pullRequestTitle(mentionPlainText(sentPrompt)));
+      onTitleChange?.(shortChatTitle(mentionPlainText(sentPrompt)));
   }
   useEffect(() => {
     mounted.current = true;
@@ -952,7 +986,7 @@ export function Conversation({
       // A new chat takes a short title from its first message at once (CH-2). The saved chat
       // keeps the title that the agent gives it.
       if (session.projectId && !providerSession.current && !messagesBefore.current && !taskId)
-        onTitleChange?.(pullRequestTitle(mentionPlainText(sentPrompt)));
+        onTitleChange?.(shortChatTitle(mentionPlainText(sentPrompt)));
       if (next.status !== 'running') finishRun(next);
     } catch (e) {
       if (!mounted.current) return;
@@ -975,7 +1009,7 @@ export function Conversation({
       clearComposer();
       follow.current = true;
       if (session.projectId && !providerSession.current && !messagesBefore.current)
-        onTitleChange?.(mentionPlainText(sentPrompt).trim().split('\n', 1)[0].slice(0, 100));
+        onTitleChange?.(shortChatTitle(mentionPlainText(sentPrompt)));
     } finally {
       startingRef.current = false;
       setStarting(false);
@@ -1181,12 +1215,46 @@ export function Conversation({
     requestAnimationFrame(() => textarea.current?.focus());
   }, []);
   // The open pull request can merge or close on GitHub. Read its state again.
+  // The tree opens a chat at one of its subagents: show its card, scroll to it and mark it.
+  const [focusedSubagent, setFocusedSubagent] = useState<string>();
+  const [focusRequest, setFocusRequest] = useState(0);
+  useEffect(() => {
+    const focus = (event: Event) => {
+      const detail = (event as CustomEvent<{ id?: string; subagentId?: string }>).detail;
+      if (!detail?.subagentId) return;
+      if (detail.id !== session.id && detail.id !== providerSession.current) return;
+      setFocusedSubagent(detail.subagentId);
+      setFocusRequest((value) => value + 1);
+    };
+    window.addEventListener('kalkidan-focus-subagent', focus);
+    return () => window.removeEventListener('kalkidan-focus-subagent', focus);
+  }, [session.id]);
+  useEffect(() => {
+    if (!focusedSubagent || !focusRequest) return;
+    const card = document.getElementById(subagentCardId(focusedSubagent));
+    if (!card) return;
+    card.scrollIntoView({ block: 'center' });
+    card.focus({ preventScroll: true });
+    card.setAttribute('data-focused', '');
+    const timer = window.setTimeout(() => card.removeAttribute('data-focused'), 1600);
+    return () => window.clearTimeout(timer);
+  }, [focusedSubagent, focusRequest]);
+  // The checks change too: read again when the window gets the focus, and each minute while
+  // a check runs.
   useEffect(() => {
     if (!pullRequest?.url || pullRequest.state === 'merged') return;
-    refreshPullRequest().catch(() => {
-      /* The chip keeps the saved state. */
-    });
-  }, [pullRequest?.url, repositoryId]);
+    const read = () =>
+      refreshPullRequest().catch(() => {
+        /* The chip keeps the saved state. */
+      });
+    void read();
+    window.addEventListener('focus', read);
+    const timer = pullRequest.checks === 'pending' ? window.setInterval(read, 60000) : undefined;
+    return () => {
+      window.removeEventListener('focus', read);
+      if (timer) window.clearInterval(timer);
+    };
+  }, [pullRequest?.url, pullRequest?.checks, repositoryId]);
   // A classic scrollbar (Windows, Linux) takes width on the right of the messages only. The
   // CSS subtracts it from the right padding, so messages and composer share one column.
   const panel = useRef<HTMLElement>(null);
@@ -1326,15 +1394,22 @@ export function Conversation({
   const showContext = !!contextUsage && answered && !active;
   const lastRun = runs.at(-1);
   const activityOf = (entry: ChatRun) => (
-    <AgentActivity
-      key={'activity:' + entry.id}
-      run={entry}
-      groupId={projectGroup?.id}
-      taskId={taskId || undefined}
-      docPassages={docPassages[entry.id]}
-      context={showContext && entry === lastRun ? contextUsage : undefined}
-    />
+    <Fragment key={'activity:' + entry.id}>
+      <AgentActivity
+        run={entry}
+        groupId={projectGroup?.id}
+        taskId={taskId || undefined}
+        docPassages={docPassages[entry.id]}
+        context={showContext && entry === lastRun ? contextUsage : undefined}
+      />
+      {/* The subagents that this run started go under its answer (SH-A3). */}
+      <SubagentCards subagents={entry.subagents} shown={focusedSubagent} />
+    </Fragment>
   );
+  // A chat from history has its subagents on the session, not on a run in this view.
+  const historySubagents = runs.some((entry) => entry.subagents?.length)
+    ? undefined
+    : session.subagents;
   const lastAnswer =
     [...allMessages].reverse().find((message) => message.role === 'assistant')?.text || '';
   const firstMessage = allMessages.find((message) => message.role === 'user')?.text || prompt || '';
@@ -1590,6 +1665,7 @@ export function Conversation({
             ))}
           </div>
           {unplaced.map(activityOf)}
+          <SubagentCards subagents={historySubagents} shown={focusedSubagent} />
           {/* The message that waits for the sign-in, and the sign-in card under it (ST-C3). */}
           {queued && (
             <>
@@ -1717,20 +1793,7 @@ export function Conversation({
                 {pullRequest.number ? `#${pullRequest.number} ` : ''}
                 {sessionTitle}
               </span>
-              <span className="pr-row-state" data-state={pullRequest.state || 'open'}>
-                {pullRequest.state === 'merged' ? (
-                  'Merged'
-                ) : pullRequest.state === 'closed' ? (
-                  'Closed'
-                ) : pullRequest.draft ? (
-                  'Draft'
-                ) : (
-                  <>
-                    <Check aria-hidden="true" />
-                    Open
-                  </>
-                )}
-              </span>
+              <PullRequestState value={pullRequest} />
               <Button
                 size="sm"
                 variant="outline"
@@ -1773,9 +1836,11 @@ export function Conversation({
             canSend={!!prompt.trim() && !taskBusy && !loading && !readOnly}
             enterToSend={enterToSend}
             placeholder={
-              messages.length || run
-                ? 'Ask for a change'
-                : composerPlaceholderFor(agentName, session.projectId ? folderName : undefined)
+              queued
+                ? 'Reply…'
+                : messages.length || run
+                  ? 'Ask for a change'
+                  : composerPlaceholderFor(agentName, session.projectId ? folderName : undefined)
             }
             inputProps={{
               readOnly,
@@ -2000,7 +2065,12 @@ export function Conversation({
                 {!!repositoryId && (
                   <RepoPill
                     label={identity?.repo?.name || folderName}
-                    branch={newChat ? working?.branch : undefined}
+                    // The branch shows when it is not the default branch (CH-B4, CH-B5).
+                    branch={
+                      working?.branch && working.branch !== working.defaultBranch
+                        ? working.branch
+                        : undefined
+                    }
                     color={identity?.repo?.color}
                     folders={folders.map((folder) => ({
                       ...folder,
@@ -2010,12 +2080,11 @@ export function Conversation({
                     onPick={newChat ? switchFolder : undefined}
                   />
                 )}
-                {!allowEdits && (
-                  <span className="composer-read-only" title="The agent reads files only">
-                    <Lock aria-hidden="true" />
-                    Read only
-                  </span>
-                )}
+                <AccessPill
+                  value={allowEdits ? 'edit' : 'read'}
+                  onChange={readOnly ? undefined : choosePermission}
+                  disabled={!!active}
+                />
                 <AgentPicker
                   api={api}
                   agent={session.agent}

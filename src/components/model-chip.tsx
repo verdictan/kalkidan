@@ -19,6 +19,7 @@ import {
 } from './ui/dropdown-menu';
 import { Hint } from './hint';
 import { openSettings } from './chat-links';
+import { ComputerAgentGroups } from './agent-picker-computers';
 
 /** The tool detection calls of the desktop app (DESKTOP). Older builds do not have them. */
 type ToolsAPI = {
@@ -85,10 +86,16 @@ export function AgentPicker({
   hostId,
   onAgentChange,
   disabled,
+  allComputers = false,
 }: {
   api: API;
   /** The agent of the chat, for example "codex". */
   agent: string;
+  /**
+   * The first composer before a folder is chosen (ST-C2): the menu lists the agents of each
+   * computer ("This Mac", then each SSH host) and "Tools… ⌘,".
+   */
+  allComputers?: boolean;
   /** The SSH host of the chat. Undefined: this computer. */
   hostId?: string;
   /** Changes the agent of a new chat. Without it, the agent of the chat cannot change. */
@@ -116,57 +123,66 @@ export function AgentPicker({
           </Button>
         </DropdownMenuTrigger>
       </Hint>
-      <DropdownMenuContent align="start" className="agent-picker-menu">
-        <div className="agent-picker-head" role="presentation">
-          <span>{hostId ? 'On this SSH host' : 'On this computer'}</span>
-          <span className="agent-picker-through">through Verdictan</span>
-        </div>
-        {!choices && (
-          <p role="status" className="agent-picker-note">
-            Finding agents…
-          </p>
-        )}
-        {choices?.map((choice) =>
-          choice.available ? (
-            <DropdownMenuItem
-              key={choice.agent}
-              disabled={choice.agent !== agent && !onAgentChange}
-              onSelect={() => {
-                if (choice.agent === agent) return;
-                if (isAgent(choice.agent)) savePreferredAgent(choice.agent);
-                onAgentChange?.(choice.agent);
-              }}
-            >
-              <AgentIcon agent={choice.agent} />
-              <span className="min-w-0 flex-1 truncate">{choice.name}</span>
-              {choice.version && <span className="agent-picker-version">{choice.version}</span>}
-              {choice.agent === agent ? (
-                <Check aria-label="Selected" className="text-foreground" />
-              ) : (
-                <span className="size-4" aria-hidden="true" />
-              )}
-            </DropdownMenuItem>
-          ) : (
-            <DropdownMenuItem
-              key={choice.agent}
-              className="text-muted-foreground"
-              disabled={!choice.installUrl}
-              onSelect={() => window.open(choice.installUrl, '_blank', 'noreferrer')}
-            >
-              <AgentIcon agent={choice.agent} />
-              <span className="min-w-0 flex-1 truncate">{choice.name}</span>
-              <span className="agent-picker-version">Not installed</span>
-              <SquareArrowOutUpRight aria-label="Opens the official page" />
-            </DropdownMenuItem>
-          ),
-        )}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => openSettings('tools')}>
-          <Settings2 />
-          Tools…
-        </DropdownMenuItem>
-        <p className="agent-picker-note">{restartLine}</p>
-      </DropdownMenuContent>
+      {allComputers ? (
+        <DropdownMenuContent
+          align="start"
+          className="agent-picker-menu agent-picker-computers w-[300px]"
+        >
+          <ComputerAgentGroups api={api} agent={agent} onAgentChange={onAgentChange} />
+        </DropdownMenuContent>
+      ) : (
+        <DropdownMenuContent align="start" className="agent-picker-menu">
+          <div className="agent-picker-head" role="presentation">
+            <span>{hostId ? 'On this SSH host' : 'On this computer'}</span>
+            <span className="agent-picker-through">through Verdictan</span>
+          </div>
+          {!choices && (
+            <p role="status" className="agent-picker-note">
+              Finding agents…
+            </p>
+          )}
+          {choices?.map((choice) =>
+            choice.available ? (
+              <DropdownMenuItem
+                key={choice.agent}
+                disabled={choice.agent !== agent && !onAgentChange}
+                onSelect={() => {
+                  if (choice.agent === agent) return;
+                  if (isAgent(choice.agent)) savePreferredAgent(choice.agent);
+                  onAgentChange?.(choice.agent);
+                }}
+              >
+                <AgentIcon agent={choice.agent} />
+                <span className="min-w-0 flex-1 truncate">{choice.name}</span>
+                {choice.version && <span className="agent-picker-version">{choice.version}</span>}
+                {choice.agent === agent ? (
+                  <Check aria-label="Selected" className="text-foreground" />
+                ) : (
+                  <span className="size-4" aria-hidden="true" />
+                )}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                key={choice.agent}
+                className="text-muted-foreground"
+                disabled={!choice.installUrl}
+                onSelect={() => window.open(choice.installUrl, '_blank', 'noreferrer')}
+              >
+                <AgentIcon agent={choice.agent} />
+                <span className="min-w-0 flex-1 truncate">{choice.name}</span>
+                <span className="agent-picker-version">Not installed</span>
+                <SquareArrowOutUpRight aria-label="Opens the official page" />
+              </DropdownMenuItem>
+            ),
+          )}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => openSettings('tools')}>
+            <Settings2 />
+            Tools…
+          </DropdownMenuItem>
+          <p className="agent-picker-note">{restartLine}</p>
+        </DropdownMenuContent>
+      )}
     </DropdownMenu>
   );
 }

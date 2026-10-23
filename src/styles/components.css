@@ -10,9 +10,10 @@
      bar share one edge at every width. */
   padding: var(--page-padding-top) var(--frame-x, var(--page-padding-x)) var(--page-padding-bottom);
 }
-/* PageHeader (page-header.tsx): the one 48px header of every page, which is also the title
-   bar. Mark and title (15/24 600), the view switch, then the actions. Its bottom border and the
-   sidebar edge are the only borders around content. */
+/* PageHeader (page-header.tsx): the 40px title bar of every page. It holds the crumb (the
+   16px mark and the name, 13/20 500) or the crumbs of a chat, then the actions. A page with
+   views adds the page head under it: the title row (16px mark, 20/28 600 title, actions) and
+   the views as underlined tabs (TK-A, SH-A). */
 .app-header {
   position: sticky;
   top: 0;
@@ -23,13 +24,14 @@
   gap: var(--space-1);
   min-width: 0;
   height: var(--header-height);
-  padding: 0 var(--space-4) 0 var(--frame-x, var(--page-padding-x));
+  padding: 0 var(--space-3) 0 var(--frame-x, var(--page-padding-x));
   border-bottom: 1px solid var(--border);
   background: var(--background);
   -webkit-app-region: drag;
 }
-.app-header[data-tinted] {
-  background: var(--id-tint-header);
+/* Knowledge (KN-B): the tabs come right under the title bar, so the tabs draw the line. */
+.app-header[data-page-head='tabs'] {
+  border-bottom: 0;
 }
 .app-header :is(button, a, input, [role='button'], [tabindex]) {
   -webkit-app-region: no-drag;
@@ -40,12 +42,13 @@
   gap: var(--space-2);
   min-width: 0;
   margin: 0 var(--space-4) 0 0;
-  font-size: var(--text-base);
-  line-height: 24px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: 500;
   white-space: nowrap;
 }
-.app-header-title:focus {
+.app-header-title:focus,
+.page-head-title:focus {
   outline: none;
 }
 .app-header-title-text {
@@ -59,11 +62,11 @@
   line-height: 16px;
   font-weight: 400;
 }
-/* The crumbs of a chat: identity tokens 8 apart; the last one is the current item. */
+/* The crumbs of a chat: identity tokens 6 apart; the last one is the current item. */
 .app-header-crumbs {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   min-width: 0;
   margin-right: var(--space-4);
   color: var(--muted-foreground);
@@ -71,54 +74,10 @@
 }
 .app-header-crumbs .identity-token[data-strong] {
   color: var(--foreground);
-  font-size: var(--text-base);
-  line-height: 24px;
-  font-weight: 600;
-  min-width: 0;
-}
-.app-header-views {
-  display: flex;
-  min-width: 0;
-}
-.app-header-views-list {
-  display: flex;
-  gap: 2px;
-}
-/* Views are the same segmented items as SegmentedControl: 28 high, radius 8, muted; the
-   current view is the strong fill, or the 12% identity tint where it is a place. */
-.app-header-view {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: var(--control-sm);
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  font: inherit;
   font-size: var(--text-sm);
   line-height: 20px;
-  white-space: nowrap;
-  transition:
-    background-color var(--motion-fast) ease-out,
-    color var(--motion-fast) ease-out;
-}
-.app-header-view:hover {
-  color: var(--foreground);
-  background: var(--fill);
-}
-.app-header-view[aria-current='page'] {
-  background: var(--fill-strong);
-  color: var(--foreground);
   font-weight: 500;
-}
-.app-header[data-view-tint] .app-header-view[aria-current='page'] {
-  background: var(--id-tint);
-}
-.app-header-view:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring-inset);
+  min-width: 0;
 }
 .app-header-spacer {
   flex: 1;
@@ -128,6 +87,82 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
+}
+/* The page head of a project: the title row 24px under the title bar, then the tabs 16px
+   under it. The tabs line spans the content width. */
+.page-head {
+  flex: none;
+  padding: var(--space-6) var(--frame-x, var(--page-padding-x)) 0;
+}
+.page-head:not([data-title-row]) {
+  padding-top: 0;
+  padding-inline: 0;
+}
+.page-head-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 28px;
+}
+.page-head-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.page-tabs {
+  display: flex;
+  min-width: 0;
+  margin-top: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.page-head:not([data-title-row]) .page-tabs {
+  margin-top: 0;
+  padding-inline: var(--frame-x, var(--page-padding-x));
+}
+.page-tabs-list {
+  display: flex;
+  gap: var(--space-6);
+  height: 36px;
+}
+.page-head:not([data-title-row]) .page-tabs-list {
+  height: 40px;
+}
+/* A tab: muted text; the current tab is foreground 500 with a 2px line on the tabs line. */
+.page-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: -1px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 20px;
+  white-space: nowrap;
+  transition: color var(--motion-fast) ease-out;
+}
+.page-tab:hover {
+  color: var(--foreground);
+}
+.page-tab[aria-current='page'] {
+  border-bottom-color: var(--foreground);
+  color: var(--foreground);
+  font-weight: 500;
+}
+.page-tab:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm, 4px);
+  box-shadow: var(--focus-ring-inset);
 }
 @media (max-width: 999px) {
   .app-header {
@@ -935,7 +970,7 @@
   font-weight: 600;
 }
 
-/* StatusGlyph (status-glyph.tsx): a 16px slot after the name. Working is a neutral 8px
+/* StatusGlyph (status-glyph.tsx): a 16px slot after the name. Working is a neutral 10px
    spinner, needs you an amber "!", failed a red cross. Status colors are never identity. */
 .status-glyph {
   position: relative;
@@ -948,30 +983,33 @@
 }
 .status-glyph[data-status='working']::before {
   content: '';
-  width: 8px;
-  height: 8px;
-  border: 2px solid var(--border);
-  border-top-color: var(--foreground);
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--muted-foreground);
   border-radius: var(--radius-full);
-  animation: status-glyph-spin 1s linear infinite;
+  animation: status-glyph-spin 0.9s linear infinite;
 }
+/* Needs you: a plain amber "!" (SH-A5), no fill around it. */
 .status-glyph[data-status='needs-you'] {
-  isolation: isolate;
-  color: var(--primary-foreground);
+  color: var(--warning);
   font-family: var(--font-sans);
-  font-size: 10px;
-  line-height: 14px;
+  font-size: 13px;
+  line-height: 1;
   font-weight: 700;
 }
-.status-glyph[data-status='needs-you']::before {
+.status-glyph[data-status='failed']::before,
+.status-glyph[data-status='failed']::after {
   content: '';
   position: absolute;
-  inset: 1px;
-  z-index: -1;
-  border-radius: var(--radius-full);
-  background: var(--warning);
+  top: 7px;
+  left: 3px;
+  width: 10px;
+  height: 1.6px;
+  border-radius: 1px;
+  background: var(--destructive);
+  transform: rotate(45deg);
 }
-.status-glyph[data-status='failed']::before,
 .status-glyph[data-status='failed']::after {
   content: '';
   position: absolute;
@@ -1022,17 +1060,10 @@
 .row[data-selected]:hover {
   background: var(--row-selected, var(--fill-strong));
 }
-.row[data-tint][data-selected],
-.row[data-tint][data-selected]:hover {
-  background: var(--id-tint);
-}
 .sidebar .row,
 .row[data-surface='sidebar'] {
   --row-hover: var(--sidebar-hover);
   --row-selected: var(--sidebar-selected);
-}
-.sidebar .row[data-tint][data-selected] {
-  background: var(--id-tint-sidebar);
 }
 .row-main {
   display: flex;

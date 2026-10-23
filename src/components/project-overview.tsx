@@ -8,7 +8,7 @@ import type { WorkspaceIdentity } from '../hooks/use-workspace-identity';
 import { Button } from './ui/button';
 import { IdentityMark } from './ui/identity-mark';
 import { PageHeader } from './ui/page-header';
-import { Row } from './ui/row';
+import { StatusGlyph } from './ui/status-glyph';
 import type { API, Agent, ProjectGroup, Project, Session } from '../types';
 import { sessionRepo } from '../lib/session-repository';
 import { fullTime, relativeTime } from '../lib/relative-time';
@@ -16,8 +16,9 @@ import { folderName, showFolderImportResult, useFolderImport } from './repositor
 import { showToast } from './ui/toast';
 import { errorMessage } from '../lib/errors';
 import { plural } from '../lib/platform';
-import { Composer, composerChipClass } from './composer';
+import { Composer, NewChatAccessPill, composerChipClass } from './composer';
 import { AgentPicker } from './model-chip';
+import { FoundFolderChips } from './found-folders';
 import { requestNewChat, usePreferredAgent } from './new-chat-button';
 import {
   activityKey,
@@ -146,15 +147,25 @@ function StartComposer({ api, onRefresh }: { api: API; onRefresh: () => Promise<
               </span>
               <ChevronDown aria-hidden="true" />
             </Button>
+            <NewChatAccessPill />
             <AgentPicker
               api={api}
               agent={agent}
+              allComputers={!folder}
               onAgentChange={(value) => {
                 const next = agentCatalog.find((item) => item.id === value)?.id;
                 if (next) setAgent(next);
               }}
             />
           </>
+        }
+      />
+      <FoundFolderChips
+        api={api}
+        chosen={folder?.root}
+        disabled={busy}
+        onChoose={(path) =>
+          void folderImport.scanFolder(path).then((result) => result && setFolder(result))
         }
       />
     </div>
@@ -200,12 +211,17 @@ export function ProjectOverview({
     .map((session) => ({ session, repo: sessionRepo(session, repos) }))
     .filter((item): item is { session: Session; repo: Project } => !!item.repo)
     .sort((a, b) => (b.session.updatedAt || '').localeCompare(a.session.updatedAt || ''));
+  const statusWords: Record<string, string> = {
+    'needs-you': 'Needs you',
+    working: 'Working',
+    failed: 'Failed',
+  };
   return (
     <div className="project-frame projects-page" data-page="projects">
       <PageHeader
         title="Projects"
         actions={
-          <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+          <Button size="sm" onClick={() => setOpen(true)}>
             <Plus />
             New project
           </Button>
@@ -213,38 +229,53 @@ export function ProjectOverview({
       />
       <div className="project-frame-body">
         <section className="page" aria-label="Projects">
-          <div className="row-list">
-            {groups.map((group) => {
-              const members = repos.filter((repo) => group.repoIds.includes(repo.id));
-              const chats = recent.filter(({ repo }) => group.repoIds.includes(repo.id));
-              const status = strongestStatus(
-                chats.map(({ session }) => itemStatusOf(live(session))),
-              );
-              const last = chats[0]?.session.updatedAt;
-              return (
-                <Row
-                  key={group.id}
-                  size="list"
-                  className="project-row"
-                  leading={<IdentityMark kind="project" color={identity.project(group)} />}
-                  title={group.name}
-                  detail={
-                    members.length ? members.map((repo) => repo.name).join(' · ') : 'No repos yet'
-                  }
-                  status={status}
-                  meta={
-                    last && (
-                      <time dateTime={last} title={fullTime(last)}>
-                        {relativeTime(last)}
-                      </time>
-                    )
-                  }
-                  aria-label={`${group.name}, ${plural(members.length, 'repo')}`}
-                  onClick={() => onSelect(group)}
-                  onDoubleClick={onOpenWindow ? () => onOpenWindow(group) : undefined}
-                />
-              );
-            })}
+          {/* SP-C2: a table with Name, Activity and Updated. Each row opens its project. */}
+          <div className="projects-table">
+            <div className="projects-table-head" aria-hidden="true">
+              <span>Name</span>
+              <span>Activity</span>
+              <span>Updated</span>
+            </div>
+            <ul className="projects-table-rows" aria-label="Projects">
+              {groups.map((group) => {
+                const members = repos.filter((repo) => group.repoIds.includes(repo.id));
+                const chats = recent.filter(({ repo }) => group.repoIds.includes(repo.id));
+                const status = strongestStatus(
+                  chats.map(({ session }) => itemStatusOf(live(session))),
+                );
+                const last = chats[0]?.session.updatedAt;
+                const count = members.length ? plural(members.length, 'repo') : 'No repos yet';
+                const word = status ? statusWords[status] : undefined;
+                const activityText = word ? `${word} · ${count}` : count;
+                return (
+                  <li key={group.id}>
+                    <button
+                      type="button"
+                      className="projects-table-row"
+                      aria-label={`${group.name}, ${activityText}`}
+                      onClick={() => onSelect(group)}
+                      onDoubleClick={onOpenWindow ? () => onOpenWindow(group) : undefined}
+                    >
+                      <span className="projects-table-name">
+                        <IdentityMark kind="project" color={identity.project(group)} />
+                        <span className="truncate">{group.name}</span>
+                      </span>
+                      <span className="projects-table-activity">
+                        {status && status !== 'idle' && <StatusGlyph status={status} />}
+                        <span className="truncate">{activityText}</span>
+                      </span>
+                      <span className="projects-table-updated">
+                        {last && (
+                          <time dateTime={last} title={fullTime(last)}>
+                            {relativeTime(last)}
+                          </time>
+                        )}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         </section>
       </div>

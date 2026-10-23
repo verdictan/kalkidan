@@ -93,3 +93,18 @@ export async function openCloneFromGitHub(page: Page, project: string) {
   await palette.getByRole('option', { name: 'Clone from GitHub…', exact: true }).click();
   await page.getByRole('dialog', { name: 'Clone from GitHub', exact: true }).waitFor();
 }
+
+/**
+ * Opens the New project dialog through ⌘K. Before the first project there is no sidebar
+ * (ST-C2), so ⌘K and ⇧⌘N are the ways to make a project.
+ */
+export async function openNewProject(page: Page) {
+  await page.getByRole('heading', { name: 'What are we working on?' }).waitFor();
+  await page.keyboard.press('ControlOrMeta+KeyK');
+  const palette = page.getByRole('dialog', { name: 'Search or run a command' });
+  await palette.getByRole('combobox', { name: 'Search or run a command' }).fill('New project');
+  await palette
+    .getByRole('option', { name: /^New project…/ })
+    .first()
+    .click();
+}

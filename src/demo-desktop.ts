@@ -71,9 +71,18 @@ function tool(
   };
 }
 
-/** `localStorage['kalkidan.demo.tools']`: 'all' (all ready), 'none' (no agents), else one missing. */
+/**
+ * `localStorage['kalkidan.demo.tools']`: 'all' (all ready), 'none' (no agents), 'no-claude' (the
+ * Settings frames: Codex ready, Claude Code missing), else Codex missing.
+ */
 function demoTools(): ToolStatus[] {
   const mode = read(toolsKey);
+  if (mode === 'no-claude')
+    return [
+      tool('claude', undefined),
+      tool('codex', '0.164.0'),
+      tool('gh', '2.62.0', { account: 'danakim' }),
+    ];
   const gh = tool('gh', '2.62.0', { account: 'dana-kim' });
   if (mode === 'all') return [tool('claude', '2.0.14'), tool('codex', '0.46.0'), gh];
   if (mode === 'none') return [tool('claude', undefined), tool('codex', undefined), gh];
@@ -116,7 +125,12 @@ export const demoDesktop: Required<DesktopAPI> = {
       computer: 'build-server',
       name: 'build-server',
       connected: true,
-      tools: [tool('claude', undefined), tool('codex', '0.46.0'), tool('gh', '2.62.0')],
+      // The full workspace (ST-C2) has both agents on the SSH host.
+      tools: [
+        tool('claude', read('kalkidan-demo-workspace') === 'full' ? '2.0.14' : undefined),
+        tool('codex', '0.46.0'),
+        tool('gh', '2.62.0'),
+      ],
       checkedAt: new Date().toISOString(),
     },
   ],

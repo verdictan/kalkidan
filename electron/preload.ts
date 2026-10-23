@@ -234,6 +234,7 @@ const api: API = {
   discover: (groupId) => ipcRenderer.invoke('discover', groupId),
   chooseFolder: (title, buttonLabel) => ipcRenderer.invoke('choose-folder', title, buttonLabel),
   scanRepositories: (path, hostId) => ipcRenderer.invoke('scan-repositories', path, hostId),
+  findCodeFolders: () => ipcRenderer.invoke('find-code-folders'),
   addRepositories: (groupId, paths) => ipcRenderer.invoke('add-repositories', groupId, paths),
   worktreePreview: (id, branch) => ipcRenderer.invoke('worktree-preview', id, branch),
   gitSwitchNewBranch: (id, branch) => ipcRenderer.invoke('git-switch-new-branch', id, branch),

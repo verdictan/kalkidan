@@ -1,4 +1,4 @@
-import { test, expect, settingsDialog } from './helpers/app';
+import { test, expect, openSettingsWindow, settingsDialog } from './helpers/app';
 
 test('sidebar hides verified connections and restores the action when access is lost', async ({
   page,
@@ -31,12 +31,8 @@ test('sidebar hides verified connections and restores the action when access is 
   await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible();
   const button = page.locator('.sidebar-github-connect');
   await expect(button).toHaveCount(0);
-  // The footer keeps the Settings gear. It opens the Settings page.
-  const gear = page
-    .getByRole('navigation', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Settings', exact: true });
-  await expect(gear).toBeVisible();
-  await gear.click();
+  // The account menu in the footer has Settings… It opens the Settings page.
+  await openSettingsWindow(page);
   await expect(settingsDialog(page)).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(settingsDialog(page)).toHaveCount(0);

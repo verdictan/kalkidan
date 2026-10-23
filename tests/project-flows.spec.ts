@@ -274,7 +274,8 @@ test('settings shows agent and remote controls without history import', async ({
   await expect(computer).toContainText('Claude Code');
   // The GitHub CLI row has the GitHub account.
   await expect(computer).toContainText('GitHub CLI');
-  await tools.getByRole('button', { name: 'Add SSH host', exact: true }).click();
+  // Without a host, "Add SSH host…" is in the last line. It opens the field in SSH hosts.
+  await settings.getByRole('button', { name: 'Add SSH host…', exact: true }).click();
   await expect(settings.getByRole('textbox', { name: 'SSH target' })).toBeVisible();
   // No part has a history import.
   await expect(settings.getByText('Import chat history', { exact: true })).toHaveCount(0);

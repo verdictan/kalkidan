@@ -185,8 +185,9 @@ test('search discards stale results and reports inaccessible or truncated transc
     };
   });
   await page.goto('/');
-  // The workspace shows after the first-run check. Then Mod+K opens the palette.
-  await expect(page.getByRole('button', { name: 'Search or run a command' })).toBeVisible();
+  // The workspace shows after the first-run check (no projects: the composer, no sidebar).
+  // Then Mod+K opens the palette.
+  await expect(page.getByRole('heading', { name: 'What are we working on?' })).toBeVisible();
   await page.keyboard.press('ControlOrMeta+k');
   const input = page.getByRole('combobox', { name: 'Search or run a command' });
   await input.fill('needle');

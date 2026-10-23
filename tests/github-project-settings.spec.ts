@@ -72,7 +72,7 @@ test('Board settings opens the project part of Settings with its board and links
   // Board settings… in the board menu opens the project part of Settings with the board open.
   await page.getByRole('button', { name: 'Board: Roadmap #1', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Board settings…', exact: true }).click();
-  const dialog = page.getByRole('region', { name: 'Settings', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true });
   const project = dialog.getByRole('region', { name: 'Platform', exact: true });
   await expect(project).toBeFocused();
   await expect(project.getByRole('button', { name: 'Roadmap', exact: true })).toHaveAttribute(

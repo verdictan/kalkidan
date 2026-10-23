@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { BookOpen, CircleAlert, ExternalLink, LogOut, Settings, UserRound } from 'lucide-react';
+import {
+  BookOpen,
+  ChevronsUpDown,
+  CircleAlert,
+  ExternalLink,
+  LogOut,
+  Settings,
+  UserRound,
+} from 'lucide-react';
 import type { API } from '../api/contracts';
 import { keychainHostsMessage, keychainRefusedCode } from '../domain/verdictan';
 import { accountNames, rejectedSessionText, verdictanErrorMessage } from '../lib/verdictan-labels';
 import { regionNames } from '../lib/region-suggestion';
-import { shortcutLabel } from '../lib/platform';
+import { isMac, shortcutLabel } from '../lib/platform';
 import { cn } from '../lib/utils';
 import { useVerdictanStatus } from '../hooks/use-verdictan-status';
 import { userGuideUrl } from './about-section';
@@ -18,6 +26,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
+import { menuShortcutClass } from './ui/menu-styles';
 import { showToast } from './ui/toast';
 import { openSettings, SignInSteps, startSignIn, type SignInIntent } from './sign-in-steps';
 import { checkStatusEvent } from './chat-links';
@@ -54,27 +63,27 @@ function useMenuOpen() {
   return [open, setOpen] as const;
 }
 
-/** The gear at the end of the account row. It opens Settings (⌘,). */
-function SettingsButton() {
+/** The Settings item of the account menu. Settings also opens with ⌘,. */
+function SettingsItem() {
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="st-account-gear"
-      aria-label="Settings"
-      title={`Settings ${shortcutLabel(['mod'], ',')}`}
-      onClick={() => openSettings()}
+    <DropdownMenuItem
+      aria-keyshortcuts={isMac ? 'Meta+,' : 'Control+,'}
+      onSelect={() => openSettings()}
     >
-      <Settings />
-    </Button>
+      <Settings className="size-4" />
+      <span className="flex-1">Settings…</span>
+      <span className={menuShortcutClass} aria-hidden="true">
+        {shortcutLabel(['mod'], ',')}
+      </span>
+    </DropdownMenuItem>
   );
 }
 
 /**
- * The account row in the sidebar footer (SY-B): the avatar and the name, then a gear that opens
- * Settings. Signed in, the name opens the account menu: the email and the region, Manage
- * account, Help and feedback, and Sign out. Signed out, the row is one "Sign in" button: one
- * click starts the sign-in.
+ * The account row in the sidebar footer: the avatar, the name and the organization on two
+ * lines, then a chevron. The row opens the account menu: the email and the region, Settings…
+ * (⌘,), Manage account, Help and feedback, and Sign out. Signed out, the row is one "Sign in"
+ * button (one click starts the sign-in); Settings then opens with ⌘, and the app menu.
  */
 export function AccountMenu({ api }: { api: API }) {
   const { status, supported } = useVerdictanStatus(api);
@@ -100,6 +109,17 @@ export function AccountMenu({ api }: { api: API }) {
       setSigningOut(false);
     }
   }
+  const help = (
+    <DropdownMenuItem asChild>
+      <a href={userGuideUrl} target="_blank" rel="noreferrer">
+        <BookOpen className="size-4" />
+        Help and feedback
+        <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
+      </a>
+    </DropdownMenuItem>
+  );
+  // The menu stays inside the sidebar: as wide as the footer row.
+  const menuClass = 'account-menu-content w-[calc(var(--navigation-width)-var(--space-4))]';
   if (!signedIn) {
     const authorizing = status?.phase === 'authorizing';
     const label = supported
@@ -126,7 +146,6 @@ export function AccountMenu({ api }: { api: API }) {
             <span className="st-account-label">{label}</span>
           </span>
         )}
-        <SettingsButton />
       </div>
     );
   }
@@ -147,15 +166,14 @@ export function AccountMenu({ api }: { api: API }) {
             aria-label={`Account: ${name}${names.organization ? `, ${names.organization}` : ''}`}
           >
             <Avatar text={avatar} />
-            <span className="st-account-label">{name}</span>
+            <span className="st-account-who">
+              <span className="st-account-label">{name}</span>
+              {names.organization && <span className="st-account-org">{names.organization}</span>}
+            </span>
+            <ChevronsUpDown className="st-account-chevron-icon" aria-hidden="true" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="top"
-          align="start"
-          // The menu stays inside the sidebar: as wide as the footer row.
-          className="account-menu-content w-[calc(var(--navigation-width)-var(--space-6))]"
-        >
+        <DropdownMenuContent side="top" align="start" className={menuClass}>
           {header.length > 0 && (
             <DropdownMenuLabel className="account-menu-header">
               <span className="min-w-0">
@@ -168,6 +186,7 @@ export function AccountMenu({ api }: { api: API }) {
             </DropdownMenuLabel>
           )}
           {header.length > 0 && <DropdownMenuSeparator />}
+          <SettingsItem />
           {typeof api.verdictanOpenConsole === 'function' && (
             <DropdownMenuItem
               onSelect={() =>
@@ -183,13 +202,7 @@ export function AccountMenu({ api }: { api: API }) {
               <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem asChild>
-            <a href={userGuideUrl} target="_blank" rel="noreferrer">
-              <BookOpen className="size-4" />
-              Help and feedback
-              <ExternalLink className="ml-auto size-4" aria-label="Opens in the browser" />
-            </a>
-          </DropdownMenuItem>
+          {help}
           <DropdownMenuSeparator />
           <DropdownMenuItem disabled={signingOut} onSelect={() => void signOut()}>
             <LogOut className="size-4" />
@@ -197,7 +210,6 @@ export function AccountMenu({ api }: { api: API }) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <SettingsButton />
     </div>
   );
 }

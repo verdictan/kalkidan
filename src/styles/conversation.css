@@ -227,6 +227,7 @@
   margin-bottom: 4px;
 }
 .chat-queued-meta {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -242,6 +243,17 @@
 }
 .chat-queued-meta [data-variant='link'] {
   font-size: var(--text-xs);
+}
+/* Cancel shows on hover and keyboard focus, so the line reads as in the agreed frame. */
+.chat-queued-meta:not(:hover, :focus-within) [data-variant='link'] {
+  position: absolute;
+  right: 0;
+  opacity: 0;
+}
+/* The sign-in card in a chat is a white card with a border (ST-C3). */
+.chat-queued-meta + .sign-in-gate {
+  border: 1px solid var(--border);
+  background: var(--card);
 }
 
 /* The composer dock holds the approval banner and the composer. It has the message width,
@@ -641,9 +653,13 @@
   font-weight: 600;
   color: var(--muted-foreground);
 }
-.pr-row-state[data-state='open'] {
+.pr-row-state:is([data-state='open'], [data-state='pass']) {
   background: color-mix(in srgb, var(--success) 10%, transparent);
   color: var(--success);
+}
+.pr-row-state[data-state='fail'] {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
 }
 .pr-row-state > svg {
   width: 12px;
@@ -669,19 +685,41 @@
   opacity: 0.6;
 }
 /* "Read only" when the chat menu made the chat read only. */
-.composer-read-only {
-  display: inline-flex;
+/* The access chip (SH-A1, ST-C3): "Can edit" or "Read only", with its two-line menu. */
+.composer-access {
   flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 8px;
-  font-size: var(--text-sm);
-  color: var(--muted-foreground);
 }
-.composer-read-only > svg {
-  width: 14px;
-  height: 14px;
+.composer-access-text {
+  display: grid;
+  flex: 1;
+}
+.composer-access-description {
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+  line-height: 16px;
+  white-space: normal;
+}
+/* A narrow composer (the chat next to the tool pane, CH-B2) drops the branch first, then shows
+   the access as its icon only. The name stays for screen readers. */
+@container composer (max-width: 520px) {
+  .composer-folder-dot,
+  .composer-folder-dot + .truncate {
+    display: none;
+  }
+}
+@container composer (max-width: 400px) {
+  .composer-access-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .composer-access > svg + .composer-access-label + svg,
+  .composer-agent > svg {
+    display: none;
+  }
 }
 /* The agent picker menu (CH-B4): 264 wide, a 24px head "On this computer · through
    Verdictan", the agents with their versions, then the restart line. */
@@ -941,4 +979,48 @@ button.conversation-crumb:hover {
   .chat-markdown > pre {
     margin-inline: calc(-1 * var(--space-16));
   }
+}
+
+/* The subagents of a run (SH-A3): one 56px card each, under the answer that started them. */
+.subagent-cards {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0;
+}
+.subagent-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  scroll-margin: 24px;
+}
+.subagent-card:focus-visible,
+.subagent-card[data-focused] {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.subagent-card-text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.subagent-card-title,
+.subagent-card-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-card-title {
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: 500;
+}
+.subagent-card-detail {
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--muted-foreground);
 }

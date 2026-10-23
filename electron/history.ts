@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { codexIndex } from './codex-store';
 import { contentText, hasHiddenContext, visibleUserText } from './transcript';
+import { chatTitleFrom, shortChatTitle } from '../src/domain/chat-title';
 import { readdir, stat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Session } from '../src/types';
@@ -79,8 +80,8 @@ async function firstUserTitle(path: string, agent: 'codex' | 'claude') {
  */
 async function codexTitle(title: string, path: string) {
   const visible = visibleUserText(title);
-  if (!hasHiddenContext(visible)) return visible || 'Agent session';
-  return (path && (await firstUserTitle(path, 'codex'))) || 'Agent session';
+  if (!hasHiddenContext(visible)) return shortChatTitle(visible) || 'Agent session';
+  return (path && shortChatTitle(await firstUserTitle(path, 'codex'))) || 'Agent session';
 }
 const parsedFiles = new Map<
   string,
@@ -204,7 +205,9 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
             id = cached?.stamp === stamp ? cached.id : '',
             title = cached?.stamp === stamp ? cached.title : '',
             parent = cached?.stamp === stamp ? cached.parent : undefined,
-            type = cached?.stamp === stamp ? cached.type : undefined;
+            type = cached?.stamp === stamp ? cached.type : undefined,
+            // Claude Code writes `{"type":"summary"}` lines at the start of a session file.
+            summary = '';
           if (cached?.stamp === stamp) historyMetrics.cacheHits++;
           else {
             historyMetrics.parsedFiles++;
@@ -220,6 +223,10 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
                   type = codexSubagentType(row.payload);
                 }
                 if (agent === 'claude') {
+                  if (row.type === 'summary' && typeof row.summary === 'string') {
+                    summary ||= row.summary;
+                    continue;
+                  }
                   if (row.isSidechain) continue;
                   cwd ||= row.cwd;
                   id ||= row.sessionId;
@@ -230,6 +237,8 @@ async function scanHistory(codexRoot: string, claudeRoot: string, sources?: Map<
                 /* Truncated or unsupported lines are skipped. */
               }
             }
+            // The summary of the agent, else a short title from the first message.
+            title = chatTitleFrom({ summary, text: title });
             parsedFiles.set(path, {
               stamp,
               cwd,

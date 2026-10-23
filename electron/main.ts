@@ -134,6 +134,7 @@ import {
   worktreePreview,
 } from './git-working';
 import { scanRepositories } from './repository-scan';
+import { findCodeFolders } from './code-folders';
 import { historyWithManaged } from './history';
 const history = (codex: string, claude: string, sources?: Map<string, string>) =>
   historyWithManaged(dataRoot, codex, claude, sources);
@@ -2145,6 +2146,12 @@ app.whenReady().then(async () => {
       ? await dialog.showOpenDialog(parent, options)
       : await dialog.showOpenDialog(options);
     return result.canceled || !result.filePaths[0] ? null : result.filePaths[0];
+  });
+  handle('find-code-folders', async () => {
+    // The folders that are in Kalkidan already are not offered again.
+    const library = new Set(projects.filter((p) => !p.hostId).map((p) => p.path));
+    const found = await findCodeFolders(homedir(), { limit: 12 });
+    return found.filter((folder) => !library.has(folder.path)).slice(0, 6);
   });
   handle('scan-repositories', async (path: string, hostId?: string) => {
     if (typeof path !== 'string' || !path) throw new Error('Choose a folder.');

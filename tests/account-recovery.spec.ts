@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 /**
  * A signed-out desktop with a saved region and a sign-in that expires before the browser
- * finishes. The sign-in starts from the sidebar footer.
+ * finishes. The sign-in starts from search.
  */
 async function signedOut(page: import('@playwright/test').Page) {
   await page.addInitScript(() => {
@@ -36,11 +36,17 @@ async function signedOut(page: import('@playwright/test').Page) {
   await page.goto('/');
 }
 
-/** Starts the sign-in from the "Sign in" button in the sidebar footer. */
+/**
+ * Starts the sign-in from search. Before the first project there is no sidebar (ST-C2), so
+ * the "Sign in" of the sidebar footer is not there.
+ */
 async function signIn(page: import('@playwright/test').Page) {
+  await expect(page.getByRole('textbox', { name: 'Message for a new chat' })).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByRole('combobox', { name: 'Search or run a command' }).fill('Sign in');
   await page
-    .getByRole('navigation', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'Sign in', exact: true })
+    .getByRole('option', { name: /^Sign in/ })
+    .first()
     .click();
   const dialog = page.getByRole('dialog', { name: 'Sign in to Verdictan' });
   // The region is saved, so one click starts the sign-in. The button shows when it does not.

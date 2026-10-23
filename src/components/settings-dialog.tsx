@@ -14,7 +14,7 @@ import { paneGroupId, projectPane, settingsPane, type SettingsTab } from '../dom
 import {
   onChatPreferencesChange,
   readEnterToSend,
-  readNewChatAccess,
+  newChatAccess,
   saveEnterToSend,
   saveNewChatAccess,
 } from '../lib/chat-preferences';
@@ -27,7 +27,7 @@ import { initials } from './account-menu';
 import { BrowserSettingsDialog } from './browser-menu';
 import { DataDialog, formatBytes } from './data-settings';
 import { ProjectSettingsPanel } from './project-settings-dialog';
-import { ToolsPart } from './settings-tools';
+import { addSshHostEvent, HostsPart, ToolsPart } from './settings-tools';
 import { openSettings, startSignIn } from './sign-in-steps';
 import { Button } from './ui/button';
 import { Switch } from './ui/switch';
@@ -65,12 +65,15 @@ export interface SettingsBodyProps {
   onRefresh?: () => Promise<void>;
   /** A new value moves to the part again, also when the part is the same. */
   request?: number;
+  /** The sheet: the account row is the head of the sheet, with a close button. */
+  onClose?: () => void;
 }
 
 /**
  * The one Settings page (⌘,), with no section nav: the account, Tools (the agent CLIs and the
- * GitHub CLI that Kalkidan finds), Preferences, and the current project. The shell shows it
- * under its 48px "Settings" header. Kalkidan does not install, update or set up agents here.
+ * GitHub CLI that Kalkidan finds), Preferences, and the current project. In the sheet
+ * (`onClose`), the account row is the head and the other parts scroll under it (ST-C4).
+ * Kalkidan does not install, update or set up agents here.
  */
 export function SettingsBody({
   api,
@@ -81,6 +84,7 @@ export function SettingsBody({
   currentGroupId,
   onRefresh,
   request,
+  onClose,
 }: SettingsBodyProps) {
   const target = settingsPane(section, anchor);
   const root = useRef<HTMLDivElement>(null);
@@ -120,9 +124,8 @@ export function SettingsBody({
     }, 50);
     return () => clearInterval(timer);
   }, [target.pane, target.anchor, requestedGroup, request]);
-  return (
-    <div ref={root} className="st-page" data-testid="settings-page">
-      <AccountPart api={api} />
+  const parts = (
+    <>
       <ToolsPart api={api} open />
       <PreferencesPart api={api} />
       {group && (
@@ -137,7 +140,26 @@ export function SettingsBody({
           onRefresh={onRefresh}
         />
       )}
+      <HostsPart api={api} open />
       <AboutLine api={api} />
+    </>
+  );
+  if (!onClose)
+    return (
+      <div ref={root} className="st-page" data-testid="settings-page">
+        <AccountPart api={api} />
+        {parts}
+      </div>
+    );
+  return (
+    <div ref={root} className="st-page st-sheet-page" data-testid="settings-page">
+      <header className="st-sheet-head">
+        <AccountPart api={api} />
+        <Button variant="ghost" size="icon-sm" aria-label="Close Settings" onClick={onClose}>
+          <X />
+        </Button>
+      </header>
+      <div className="st-scroll st-sheet-body">{parts}</div>
     </div>
   );
 }
@@ -260,7 +282,8 @@ export function useCloseOnEscape(onClose: () => void) {
 
 /**
  * The account at the top of Settings: the avatar, the name, the organization and the region,
- * and Sign out. Signed out: "Not signed in" and Sign in.
+ * and Sign out. Signed out: "Not signed in" and Sign in. "Manage account" is in the account
+ * menu and at the end of the page.
  */
 function AccountPart({ api }: { api: API }) {
   const { status, setStatus, supported } = useVerdictanStatus(api);
@@ -309,22 +332,6 @@ function AccountPart({ api }: { api: API }) {
       </h2>
       {signedIn ? (
         <>
-          {typeof api.verdictanOpenConsole === 'function' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() =>
-                void api
-                  .verdictanOpenConsole()
-                  .catch(() =>
-                    showToast({ message: 'The browser did not open. Try again.', tone: 'error' }),
-                  )
-              }
-            >
-              Manage
-              <ExternalLink aria-label="Opens in the browser" />
-            </Button>
-          )}
           <Button variant="ghost" size="sm" disabled={signingOut} onClick={() => void signOut()}>
             Sign out
           </Button>
@@ -368,12 +375,12 @@ function SwitchRow({
  * Each switch saves at once.
  */
 function PreferencesPart({ api }: { api: API }) {
-  const [canEdit, setCanEdit] = useState(() => readNewChatAccess() === 'edit');
+  const [canEdit, setCanEdit] = useState(() => newChatAccess() === 'edit');
   const [enterToSend, setEnterToSend] = useState(readEnterToSend);
   useEffect(
     () =>
       onChatPreferencesChange(() => {
-        setCanEdit(readNewChatAccess() === 'edit');
+        setCanEdit(newChatAccess() === 'edit');
         setEnterToSend(readEnterToSend());
       }),
     [],
@@ -447,11 +454,12 @@ function NotificationRow({ api }: { api: API }) {
 }
 
 /**
- * The quiet last line: the version with a link to the releases, the data on this computer
- * (Manage…), and Clear browsing data….
+ * The quiet last line, under the fold of the sheet: the version with a link to the releases,
+ * the data on this computer (Manage…), Clear browsing data…, Add SSH host… and Manage account.
  */
 function AboutLine({ api }: { api: API }) {
   const app = useAppVersion(api);
+  const signedIn = useVerdictanStatus(api).status?.phase === 'authenticated';
   const [disk, setDisk] = useState<number>();
   const [dataOpen, setDataOpen] = useState(false);
   const [browserOpen, setBrowserOpen] = useState(false);
@@ -491,6 +499,28 @@ function AboutLine({ api }: { api: API }) {
       <button type="button" onClick={() => setBrowserOpen(true)}>
         Clear browsing data…
       </button>
+      <span aria-hidden="true">·</span>
+      <button type="button" onClick={() => window.dispatchEvent(new Event(addSshHostEvent))}>
+        Add SSH host…
+      </button>
+      {signedIn && typeof api.verdictanOpenConsole === 'function' && (
+        <>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            onClick={() =>
+              void api
+                .verdictanOpenConsole()
+                .catch(() =>
+                  showToast({ message: 'The browser did not open. Try again.', tone: 'error' }),
+                )
+            }
+          >
+            Manage account
+            <ExternalLink aria-label="Opens in the browser" />
+          </button>
+        </>
+      )}
       <DataDialog api={api} open={dataOpen} onOpenChange={setDataOpen} />
       <BrowserSettingsDialog api={api} open={browserOpen} onOpenChange={setBrowserOpen} />
     </footer>

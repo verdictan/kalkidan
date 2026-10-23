@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleAlert, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from './button';
@@ -8,7 +8,20 @@ export interface ToastAction {
   onClick: () => void;
 }
 export interface ToastInput {
+  /** The text. Screen readers read it, and it shows when there is no `content`. */
   message: string;
+  /**
+   * Optional rich text that shows in place of `message`, for example a repo mark before the repo
+   * name. Keep its words the same as `message`.
+   */
+  content?: ReactNode;
+  /** Optional node before the text, after the tone icon, for example an identity mark. */
+  leading?: ReactNode;
+  /**
+   * Shows the close button. Default: true. A toast with actions can leave it out: an action or a
+   * page change closes it.
+   */
+  closable?: boolean;
   /**
    * Error toasts show an alert icon and stay until the user closes them. Success toasts show a
    * check.
@@ -141,7 +154,12 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
           {item.tone === 'success' && (
             <Check className="mr-1 size-4 shrink-0 text-background/70" aria-hidden="true" />
           )}
-          <span className="min-w-0 flex-1 pr-2">{item.message}</span>
+          {item.leading && (
+            <span className="mr-1 flex shrink-0 items-center" aria-hidden="true">
+              {item.leading}
+            </span>
+          )}
+          <span className="min-w-0 flex-1 pr-2">{item.content ?? item.message}</span>
           {item.actions?.map((action) => (
             <Button
               key={action.label}
@@ -156,15 +174,17 @@ export function Toaster({ className, resetKey }: { className?: string; resetKey?
               {action.label}
             </Button>
           ))}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            className="text-background/70 hover:bg-background/10 hover:text-background"
-            aria-label="Close notification"
-            onClick={() => close(item.id)}
-          >
-            <X />
-          </Button>
+          {item.closable !== false && (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="text-background/70 hover:bg-background/10 hover:text-background"
+              aria-label="Close notification"
+              onClick={() => close(item.id)}
+            >
+              <X />
+            </Button>
+          )}
         </div>
       ))}
     </div>

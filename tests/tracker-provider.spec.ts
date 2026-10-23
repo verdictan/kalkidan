@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './helpers/app';
+import { openNewProject } from './helpers/navigation';
 
 /**
  * Opens Settings at the project part from the "Project actions" menu of the project header,
@@ -8,7 +9,7 @@ import { test, expect } from './helpers/app';
 async function openProjectSettings(page: Page) {
   await page.getByRole('main').getByRole('button', { name: 'Project actions' }).click();
   await page.getByRole('menuitem', { name: 'Settings…', exact: true }).click();
-  return page.getByRole('region', { name: 'Settings', exact: true });
+  return page.getByRole('dialog', { name: 'Settings', exact: true });
 }
 /** Refreshes the board from the board menu (the board name button). */
 async function refreshBoard(page: Page) {
@@ -76,11 +77,9 @@ test('a configured non-GitHub provider drives project creation and a read-only b
     };
   });
   await page.goto('/');
-  // With no project, the home page is the new chat composer. New project is in the sidebar.
-  await page
-    .getByRole('navigation', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'New project', exact: true })
-    .click();
+  // With no project, the home page is the new chat composer and there is no sidebar.
+  // New project is ⇧⌘N.
+  await openNewProject(page);
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill('Platform');
   await dialog.getByRole('button', { name: 'More options', exact: true }).click();

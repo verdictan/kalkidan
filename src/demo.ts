@@ -23,6 +23,7 @@ import type { API, Project, Session, ProjectGroup } from './types';
 import { demoCodeFiles } from './demo-code-files';
 import { demoDesktop, demoSubagents } from './demo-desktop';
 import { demoIdentityAssignments, seedIdentityOverrides } from './domain/identity';
+import type { ChatRun } from './domain/conversation';
 
 // The browser demo uses the same identity colors as the agreed frames. The desktop app does not.
 if (typeof window !== 'undefined' && !window.workspace)
@@ -75,10 +76,17 @@ const sessions: Session[] = [
   },
 ];
 // The navigation frames show three projects. Opt in with kalkidan-demo-workspace = 'full'.
-if (
-  typeof localStorage !== 'undefined' &&
-  localStorage.getItem('kalkidan-demo-workspace') === 'full'
-) {
+const demoFullWorkspace = (() => {
+  try {
+    return localStorage.getItem('kalkidan-demo-workspace') === 'full';
+  } catch {
+    return false;
+  }
+})();
+if (demoFullWorkspace) {
+  // Agent history gives short titles; the frames show them.
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  if (review) review.title = 'Review the authentication flow';
   projects.push(
     {
       id: '4',
@@ -96,11 +104,19 @@ if (
       notes: '',
       addedAt: now,
     },
+    {
+      id: '6',
+      name: 'harbor-api',
+      path: '/Users/you/Developer/harbor-api',
+      favorite: false,
+      notes: '',
+      addedAt: now,
+    },
   );
   groups = [
     ...groups,
     { id: 'ledger', name: 'Ledger', repoIds: ['4'] },
-    { id: 'harbor', name: 'Harbor', repoIds: ['5'] },
+    { id: 'harbor', name: 'Harbor', repoIds: ['5', '6'] },
   ];
   sessions.push(
     {
@@ -114,14 +130,15 @@ if (
       id: 'demo-ledger',
       agent: 'claude',
       cwd: '/Users/you/Developer/ledger-api',
-      updatedAt: now,
+      // The Projects table (SP-C2): Ledger 2 d, Harbor 5 min.
+      updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
       title: 'Migrate invoices to Stripe v2',
     },
     {
       id: 'demo-harbor',
       agent: 'codex',
       cwd: '/Users/you/Developer/harbor-app',
-      updatedAt: now,
+      updatedAt: new Date(Date.now() - 5 * 60000).toISOString(),
       title: 'Add the shipment timeline',
     },
   );
@@ -275,6 +292,104 @@ if (demoTasksFrame) {
     },
   );
 }
+// The agreed frames of the full workspace: the review chat has two subagents and waits for an
+// approval (a live run that the chat attaches to), and api-service is on a branch.
+const demoReviewRunId = 'demo-run-review';
+const demoReviewRun = {
+  approval: 'pending' as 'pending' | 'approved' | 'denied',
+  stopped: false,
+};
+if (demoFullWorkspace) {
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  // The review chat is the newest chat of atlas-web.
+  const refine = sessions.find((session) => session.id === 'demo-session');
+  if (refine) refine.updatedAt = new Date(Date.now() - 60000).toISOString();
+  if (review) {
+    review.liveRunId = demoReviewRunId;
+    review.subagents = [
+      {
+        id: 'demo-sub-test-runner',
+        title: 'test-runner',
+        status: 'running',
+        activity: 'running 14 tests',
+      },
+      { id: 'demo-sub-lint-fixer', title: 'lint-fixer', status: 'done' },
+    ];
+  }
+  // The sample colors of the sessions and subagents. A color that the user chose stays.
+  if (typeof window !== 'undefined' && !window.workspace)
+    seedIdentityOverrides([
+      { kind: 'session', key: 'demo-session', color: 'pink' },
+      { kind: 'session', key: 'demo-claude', color: 'slate' },
+      { kind: 'session', key: 'demo-token', color: 'plum' },
+      { kind: 'subagent', key: 'demo-sub-test-runner', color: 'violet' },
+      { kind: 'subagent', key: 'demo-sub-lint-fixer', color: 'teal' },
+    ]);
+}
+/** The live run of the review chat in the full workspace: one approval waits. */
+function demoReviewChatRun(): ChatRun {
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  const done = demoReviewRun.stopped || demoReviewRun.approval !== 'pending';
+  return {
+    id: demoReviewRunId,
+    agent: 'claude',
+    sessionId: 'demo-claude',
+    sessionReady: true,
+    status: demoReviewRun.stopped ? 'stopped' : done ? 'completed' : 'running',
+    activity: '',
+    messages: [
+      {
+        id: 'demo-review-1',
+        role: 'assistant',
+        text: 'I read the sign-in flow in `src/auth`. test-runner runs the auth tests now.',
+      },
+    ],
+    approvals: [
+      {
+        id: 'demo-review-approval',
+        title: 'Run',
+        detail: 'npm test -- auth',
+        status: demoReviewRun.approval,
+      },
+    ],
+    tools: [],
+    subagents: review?.subagents || [],
+  };
+}
+// The Tasks frames (TK-A1): the board chats only, and one GitHub change of this session that has
+// no confirmed result yet.
+if (demoTasksFrame) {
+  const keep = new Set([
+    'demo-claude',
+    'demo-overview',
+    'demo-redis',
+    'demo-flaky',
+    'demo-spacing',
+  ]);
+  for (let index = sessions.length - 1; index >= 0; index -= 1)
+    if (!keep.has(sessions[index].id) && !sessions[index].id.startsWith('demo-ledger')) {
+      if (sessions[index].id === 'demo-harbor')
+        sessions[index].outcome = { outcome: 'failed', reason: 'agent_error', at: now };
+      else sessions.splice(index, 1);
+    }
+  const review = sessions.find((session) => session.id === 'demo-claude');
+  if (review) {
+    review.cwd = projects[2].path;
+    review.updatedAt = new Date(Date.now() - 60000).toISOString();
+    delete review.liveRunId;
+    delete review.subagents;
+  }
+  const overview = sessions.find((session) => session.id === 'demo-overview');
+  if (overview)
+    overview.subagents = [
+      {
+        id: 'demo-sub-overview',
+        title: 'Explore overview components',
+        status: 'running',
+        type: 'Explore',
+      },
+    ];
+}
 // The GitHub sign-in of the connect frame (TK-A3): a code that waits for approval.
 const demoGitHubWaiting = (() => {
   try {
@@ -283,6 +398,17 @@ const demoGitHubWaiting = (() => {
     return false;
   }
 })();
+// The full workspace has Atlas on its board, except in the connect frame.
+if (demoFullWorkspace && !demoGitHubWaiting)
+  groups = groups.map((group) =>
+    group.id === 'atlas'
+      ? {
+          ...group,
+          github: structuredClone(board.project),
+          tracker: { provider: 'github', project: structuredClone(board.project) },
+        }
+      : group,
+  );
 let demoGitHubStarted = false;
 // The names of the sample repositories that the preview finds in any folder.
 const scanNames = [
@@ -369,6 +495,14 @@ let demoMemory: MemoryEntry[] = [
     supersedes: [],
   },
 ];
+// The Memory frame (KN-B3) has two topics.
+if (demoFullWorkspace) {
+  demoMemory = demoMemory.filter((entry) => entry.topic !== 'Authentication');
+  const tokens = demoMemory.find((entry) => entry.topic === 'Design tokens');
+  if (tokens)
+    tokens.content =
+      'Colors come from design-system tokens. Never add raw hex values in atlas-web.';
+}
 // The sample chats read two facts and the first page of the project.
 const demoContextChats = new Set(['codex:demo-session', 'claude:demo-claude']);
 const demoContextFacts = [demoMemoryId(1), demoMemoryId(2)];
@@ -393,6 +527,8 @@ let demoWrites: GitHubMutationHistory = [
     detail: { itemId: 'task-2' },
   },
 ];
+// The Tasks frames date the change without a result at the first read (TK-A1 health line).
+let demoWritesDated = false;
 function demoStatusWrite(item: string, before: string, value: string, revertOf?: string) {
   const id = crypto.randomUUID();
   demoWrites = [
@@ -521,7 +657,15 @@ function demoStatus(): VerdictanStatus {
     return {
       region,
       phase: 'signed-out',
-      account: { state: 'signed-out', apiUrl },
+      account: {
+        state: 'signed-out',
+        apiUrl,
+        // The full workspace knows the organization of the last sign-in.
+        ...(demoFullWorkspace &&
+        demoRead(demoFirstRunKey, { welcomeDone: false, everSignedIn: false }).everSignedIn
+          ? { organizationName: 'Acme Corp' }
+          : {}),
+      },
       executionReady: false,
     };
   const state = demoAccount.expired ? 'expired' : 'authenticated';
@@ -1019,7 +1163,7 @@ export const demo: API = {
   pullRequestStatus: async (_id, url) => {
     const number = Number(/\/pull\/(\d+)/.exec(url)?.[1]);
     if (!number) throw new Error('Enter a pull request link.');
-    return { state: 'open', number, title: 'Build the project overview' };
+    return { state: 'open', number, title: 'Build the project overview', checks: 'pass' };
   },
   docsMetadata: async (group) =>
     (demoDocs[group] || []).map(({ id, title, parentId, order }) => ({
@@ -1191,6 +1335,10 @@ export const demo: API = {
     return { id: plan.id, rows };
   },
   trackerMutationHistory: async (_group, reviewedId) => {
+    if ((demoTasksFrame || demoFullWorkspace) && !demoWritesDated) {
+      demoWritesDated = true;
+      for (const row of demoWrites) if (row.state === 'unknown-outcome') row.updatedAt = Date.now();
+    }
     if (reviewedId) {
       const row = demoWrites.find((value) => value.id === reviewedId);
       if (!row || row.state !== 'unknown-outcome')
@@ -1269,7 +1417,19 @@ export const demo: API = {
   ],
   browserAction: nativeOnly,
   sessionAction: nativeOnly,
-  remoteHosts: async () => [],
+  remoteHosts: async () =>
+    demoFullWorkspace
+      ? [
+          {
+            id: 'demo-host',
+            name: 'build-server',
+            target: 'dana@build-server',
+            status: 'connected',
+            version: '0.6.9',
+            platform: 'linux',
+          },
+        ]
+      : [],
   remoteAdd: nativeOnly,
   remoteCheck: nativeOnly,
   remoteInstall: nativeOnly,
@@ -1437,15 +1597,20 @@ export const demo: API = {
     messages: [
       {
         id: 'preview-user',
-        role: 'user',
+        role: 'user' as const,
         text:
           sessions.find((s) => s.agent === agent && s.id === id)?.title || 'Continue this project',
       },
-      {
-        id: 'preview-assistant',
-        role: 'assistant',
-        text: 'This is a sample conversation. In the desktop app, your original messages appear here and you can continue with the same agent.',
-      },
+      // The review chat of the full workspace continues in its live run.
+      ...(sessions.find((s) => s.agent === agent && s.id === id)?.liveRunId === demoReviewRunId
+        ? []
+        : [
+            {
+              id: 'preview-assistant',
+              role: 'assistant' as const,
+              text: 'This is a sample conversation. In the desktop app, your original messages appear here and you can continue with the same agent.',
+            },
+          ]),
     ],
     truncated: false,
   }),
@@ -1453,11 +1618,20 @@ export const demo: API = {
   chatStart: async () => {
     throw new Error(previewAgentBlock);
   },
-  chatStatus: async () => {
+  chatStatus: async (runId) => {
+    if (demoFullWorkspace && runId === demoReviewRunId) return demoReviewChatRun();
     throw new Error('No active conversation in preview mode.');
   },
-  chatStop: nativeOnly,
-  chatApprove: nativeOnly,
+  chatStop: async (runId) => {
+    if (!demoFullWorkspace || runId !== demoReviewRunId) return nativeOnly();
+    demoReviewRun.stopped = true;
+  },
+  chatApprove: async (runId, _approvalId, allow) => {
+    if (!demoFullWorkspace || runId !== demoReviewRunId) return nativeOnly();
+    demoReviewRun.approval = allow ? 'approved' : 'denied';
+    const review = sessions.find((session) => session.id === 'demo-claude');
+    if (review) delete review.liveRunId;
+  },
   chatRespond: nativeOnly,
   dispatchReconcile: async () => {
     throw Error('Dispatch recovery requires the desktop app.');
@@ -1580,6 +1754,15 @@ export const demo: API = {
     return { added: 0 };
   },
   chooseFolder: async () => '~/code/atlas',
+  // The found code folders of the first composer (ST-C2). Only the full demo workspace has them.
+  findCodeFolders: async () =>
+    demoFullWorkspace
+      ? [
+          { name: 'atlas', path: '~/code/atlas', repos: 3, modifiedAt: 3 },
+          { name: 'ledger', path: '~/code/ledger', repos: 1, modifiedAt: 2 },
+          { name: 'harbor', path: '~/code/harbor', repos: 1, modifiedAt: 1 },
+        ]
+      : [],
   scanRepositories: async (path) => {
     const root = folderPath(path);
     return {
@@ -1656,8 +1839,8 @@ export const demo: API = {
     projects = projects.filter((p) => p.id !== id);
     groups = groups.map((g) => ({ ...g, repoIds: g.repoIds.filter((r) => r !== id) }));
   },
-  workingStatus: async () => ({
-    branch: 'main',
+  workingStatus: async (id) => ({
+    branch: demoFullWorkspace && !demoTasksFrame && id === '3' ? 'fix/token' : 'main',
     changed: 2,
     untracked: 1,
     ahead: 0,

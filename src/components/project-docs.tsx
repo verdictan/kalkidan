@@ -34,6 +34,7 @@ import { hasPrimaryModifier, isMac, plural, shortcutLabel } from '../lib/platfor
 import { cn } from '../lib/utils';
 import { Button } from './ui/button';
 import { showToast } from './ui/toast';
+import { IdentityMark } from './ui/identity-mark';
 import { Choice } from './choice';
 import { Alert, AlertDescription } from './ui/alert';
 import { EmptyState } from './ui/empty-state';
@@ -1181,9 +1182,20 @@ export function ProjectDocsPanel({
     repository: string,
     rows: TaskRowControl,
   ) {
+    const name = repositoryName(repository);
+    const color = repoColors.get(name);
     showToast({
-      message: `${plural(made.length, 'task')} in ${repositoryName(repository)}`,
+      message: `${plural(made.length, 'task')} in ${name}`,
+      // "3 tasks in ○ atlas-web": the repo mark before the repo name, as in the tree.
+      content: (
+        <span className="inline-flex items-center gap-1.5">
+          {`${plural(made.length, 'task')} in `}
+          {color && <IdentityMark kind="repo" color={color} slot={false} />}{' '}
+          <b className="font-semibold">{name}</b>
+        </span>
+      ),
       tone: 'success',
+      closable: false,
       actions: [
         {
           label: 'Change',

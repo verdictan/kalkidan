@@ -1,4 +1,5 @@
 import { test, expect } from './helpers/app';
+import { openNewProject } from './helpers/navigation';
 test('reopening an uncertain project creation resumes its original request', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('kalkidan:onboarding:v1', 'dismissed');
@@ -22,12 +23,9 @@ test('reopening an uncertain project creation resumes its original request', asy
     };
   });
   await page.goto('/');
-  // Without projects, the window shows the new chat composer. The Projects root of the tree
-  // has "New project".
-  const newProject = page
-    .getByRole('navigation', { name: 'Projects and repositories' })
-    .getByRole('button', { name: 'New project', exact: true });
-  await newProject.click();
+  // Without projects, the window shows the new chat composer and no sidebar. ⌘K has New
+  // project.
+  await openNewProject(page);
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog
     .getByRole('textbox', { name: 'Project name', exact: true })
@@ -35,7 +33,7 @@ test('reopening an uncertain project creation resumes its original request', asy
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('Response lost');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await newProject.click();
+  await openNewProject(page);
   await expect(dialog.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue(
     'Recovered project',
   );

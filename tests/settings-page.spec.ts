@@ -136,8 +136,8 @@ async function close(page: Page) {
 
 test('each entry point opens Settings at its part', async ({ page }) => {
   await fixture(page);
-  // The gear in the sidebar footer opens the top of the one Settings page. It has no
-  // section nav.
+  // Settings… in the account menu of the sidebar footer opens the top of the one Settings
+  // page. It has no section nav.
   await openSettingsWindow(page);
   await expect(settings(page).getByRole('tablist')).toHaveCount(0);
   await expect(settings(page).getByRole('region', { name: 'Account', exact: true })).toBeVisible();
@@ -191,11 +191,13 @@ test('Settings and the account menu show their content', async ({ page }) => {
   await fixture(page);
   await openSettingsWindow(page);
 
-  // The account: the name, the organization and the region, Manage and Sign out. No Renew
-  // session button, and no region change while an account is signed in.
+  // The account is the head of the sheet: the name, the organization and the region, and Sign
+  // out. Manage account is in the last line. No Renew session button, and no region change
+  // while an account is signed in.
   const account = settings(page).getByRole('region', { name: 'Account', exact: true });
   await expect(account.getByRole('heading')).toContainText('Acme Corp · European Union');
-  await expect(account.getByRole('button', { name: /^Manage/ })).toBeVisible();
+  await expect(account.getByRole('button', { name: /^Manage/ })).toHaveCount(0);
+  await expect(settings(page).getByRole('button', { name: /^Manage account/ })).toBeVisible();
   await expect(account.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await expect(account.getByRole('button', { name: 'Renew session' })).toHaveCount(0);
   await expect(account.getByRole('button', { name: /region/i })).toHaveCount(0);
@@ -214,17 +216,19 @@ test('Settings and the account menu show their content', async ({ page }) => {
   await expect(tools).toContainText('Installed something? Restart Kalkidan to find it.');
   for (const gone of [/Organization setup/, /Programs/, /Runs as/, /Kalkidan service/])
     await expect(settings(page)).not.toContainText(gone);
-  // A connected host lists its tools. A tool that is not there links to its install guide.
-  const devbox = tools.getByRole('list', { name: 'devbox', exact: true });
+  // The SSH hosts are a part of their own, under the project. A connected host lists its
+  // tools. A tool that is not there links to its install guide.
+  const hosts = settings(page).getByRole('region', { name: 'SSH hosts', exact: true });
+  const devbox = hosts.getByRole('list', { name: 'devbox', exact: true });
   await expect(devbox.getByRole('listitem').nth(0)).toContainText('0.160.0');
   await expect(devbox.getByRole('img', { name: 'Not installed' })).toBeVisible();
   await expect(
     devbox.getByRole('link', { name: 'Claude Code install guide (opens in the browser)' }),
   ).toBeVisible();
-  await expect(tools.locator('#computer-h2')).toContainText('Not connected');
+  await expect(hosts.locator('#computer-h2')).toContainText('Not connected');
   // "Add SSH host" opens the field in place. Escape closes the field, not Settings.
-  await tools.getByRole('button', { name: 'Add SSH host' }).click();
-  const add = tools.getByRole('form', { name: 'Add SSH host' });
+  await hosts.getByRole('button', { name: 'Add SSH host', exact: true }).click();
+  const add = hosts.getByRole('form', { name: 'Add SSH host' });
   await expect(add.getByRole('textbox', { name: 'SSH target' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(add).toHaveCount(0);
@@ -246,8 +250,8 @@ test('Settings and the account menu show their content', async ({ page }) => {
   await page.screenshot({ path: 'test-results/settings-page.png', fullPage: true });
   await close(page);
 
-  // The account menu: the organization and region, Manage account, help, and Sign out.
-  // Kalkidan is light only, so the menu has no theme items. The gear opens Settings.
+  // The account menu: the organization and region, Settings…, Manage account, help, and Sign
+  // out. Kalkidan is light only, so the menu has no theme items.
   await sidebar(page)
     .getByRole('button', { name: /^Account: / })
     .click();
@@ -255,6 +259,7 @@ test('Settings and the account menu show their content', async ({ page }) => {
   await expect(menu).toContainText('Acme Corp · European Union');
   await expect(menu.getByRole('menuitemradio')).toHaveCount(0);
   await expect(menu).not.toContainText('Theme');
+  await expect(menu.getByRole('menuitem', { name: /^Settings…/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /^Manage account/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Help and feedback/ })).toBeVisible();
   await expect(menu.getByRole('menuitem', { name: /Sign out/ })).toBeVisible();
@@ -277,7 +282,7 @@ test('Check again reads the tools again', async ({ page }) => {
 test('the menu of a host connects it and removes it', async ({ page }) => {
   await fixture(page);
   const tools = (await openSettingsWindow(page, 'Tools')).getByRole('region', {
-    name: 'Tools',
+    name: 'SSH hosts',
     exact: true,
   });
   // A connected host disconnects. A host that is not connected connects.
@@ -350,8 +355,9 @@ test('Tools adds a host and connects it at once', async ({ page }) => {
     };`,
   );
   await openWith(page, { section: 'computers' });
-  const tools = await expectPart(page, 'tools');
-  await tools.getByRole('button', { name: 'Add SSH host' }).click();
+  await expectPart(page, 'tools');
+  const tools = settings(page).getByRole('region', { name: 'SSH hosts', exact: true });
+  await tools.getByRole('button', { name: 'Add SSH host', exact: true }).click();
   const form = tools.getByRole('form', { name: 'Add SSH host' });
   // Add is off until the field has a target.
   await expect(form.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
@@ -367,7 +373,7 @@ test('Tools adds a host and connects it at once', async ({ page }) => {
     ]);
   // The field closes after the host is added.
   await expect(form).toHaveCount(0);
-  await expect(tools.getByRole('button', { name: 'Add SSH host' })).toBeVisible();
+  await expect(tools.getByRole('button', { name: 'Add SSH host', exact: true })).toBeVisible();
 });
 
 /** The size of the content that goes past the right edge of `selector`. */
@@ -388,14 +394,14 @@ async function overflowOf(page: Page, selector: string) {
 test('Settings does not overflow horizontally in a narrow window', async ({ page }) => {
   await page.setViewportSize({ width: 820, height: 760 });
   await fixture(page);
-  // Below 900px wide, the sidebar starts closed. Open it to reach the gear.
+  // Below 900px wide, the sidebar starts closed. Open it to reach the account menu.
   await page.getByRole('button', { name: 'Toggle sidebar', exact: true }).click();
   await openSettingsWindow(page);
   // Let the rows read their data.
   await expect(settings(page).getByRole('list', { name: 'devbox', exact: true })).toBeVisible();
-  // The page scrolls in the frame of the main column. A row action can bleed into the
-  // padding of the frame, but nothing goes past its edge.
-  expect(await overflowOf(page, '.project-frame-body:has([data-testid="settings-page"])')).toEqual({
+  // The sheet scrolls under its head. A row action can bleed into the padding of the sheet,
+  // but nothing goes past its edge.
+  expect(await overflowOf(page, '.st-sheet-body')).toEqual({
     scroll: 0,
     wide: [],
   });

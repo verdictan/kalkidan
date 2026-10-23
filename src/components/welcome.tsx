@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, CircleAlert, ExternalLink, RotateCw } from 'lucide-react';
+import { ArrowUpRight, Check, CircleAlert } from 'lucide-react';
 import type { API } from '../api/contracts';
-import { toolsNeedAttention, type ToolStatus } from '../domain/desktop';
+import { toolDetail, toolsNeedAttention, type ToolStatus } from '../domain/desktop';
 import { useFirstRunState } from '../hooks/use-verdictan-status';
 import { hideSplash } from '../lib/splash';
-import { checkDetail, restartKalkidan, sortTools, useComputerTools } from './settings-tools';
+import { restartKalkidan, sortTools, useComputerTools } from './settings-tools';
 import type { SignInResult } from './sign-in-steps';
 import { Button } from './ui/button';
 
@@ -72,32 +72,41 @@ function pageHost(url: string) {
   }
 }
 
-/** One tool on the tools check: the state glyph, the name and one line of detail. */
+/** The order of the tools check rows, as on the agreed frame: Claude Code, Codex, GitHub CLI. */
+function checkOrder(tools: ToolStatus[] | undefined) {
+  const rank = (tool: ToolStatus) =>
+    tool.tool === 'claude' ? 0 : tool.tool === 'codex' ? 1 : tool.kind === 'agent' ? 2 : 3;
+  return [...(tools || [])].sort((a, b) => rank(a) - rank(b));
+}
+
+/**
+ * One tool on the tools check: the name, one line of detail and, at the right, "Ready" or a link
+ * to its official page ("Get Codex ↗" when it is not installed, else "Install guide ↗").
+ */
 function CheckRow({ tool }: { tool: ToolStatus }) {
   const ready = tool.state === 'ready';
   return (
     <li className="st-check-row" data-state={tool.state}>
-      <span className="st-check-glyph">
-        {ready ? (
-          <Check className="st-tool-ok" role="img" aria-label="Ready" />
-        ) : (
-          <CircleAlert className="st-tool-warn" role="img" aria-label="Needs you" />
-        )}
-      </span>
       <span className="st-check-text">
         <span className="st-check-name">{tool.name}</span>
-        <span className="st-check-detail">{checkDetail(tool)}</span>
+        <span className="st-check-detail">{toolDetail(tool)}</span>
       </span>
-      {!ready && (
+      {ready ? (
+        <span className="st-check-ready">
+          <Check role="img" aria-label="Ready" />
+          Ready
+        </span>
+      ) : (
         <a
-          className="st-link"
+          className="st-link st-check-link"
           href={tool.installUrl}
           target="_blank"
           rel="noreferrer"
           aria-label={`${tool.name}: ${pageHost(tool.installUrl)} (opens in the browser)`}
         >
-          {pageHost(tool.installUrl)}
-          <ExternalLink aria-hidden="true" />
+          <CircleAlert className="sr-only" role="img" aria-label="Needs you" />
+          {tool.installed ? 'Install guide' : `Get ${tool.name}`}
+          <ArrowUpRight aria-hidden="true" />
         </a>
       )}
     </li>
@@ -105,11 +114,11 @@ function CheckRow({ tool }: { tool: ToolStatus }) {
 }
 
 /**
- * The first-run tools check (ST-C1, "Almost ready"). It shows only when a tool is missing: one
- * row for Codex, Claude Code and the GitHub CLI, each with its state and, when it is not ready,
- * a link to its official page. Kalkidan does not install or set up these tools. "Continue with
- * <agent>" opens the composer. With no agent found, the one action is "Restart Kalkidan".
- * The sign-in comes later, at the first send.
+ * The first-run tools check (SP-C5). It shows only when a tool is missing: the Kalkidan lockup,
+ * "Your tools" and one row for Claude Code, Codex and the GitHub CLI, each with its state and,
+ * when it is not ready, a link to its official page. Kalkidan does not install or set up these
+ * tools. "Continue" opens the composer with the first agent found. With no agent found, the one
+ * action is "Restart Kalkidan". The sign-in comes later, at the first send.
  *
  * `onDone` receives `{ signedIn: false }`.
  */
@@ -117,9 +126,9 @@ export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResu
   const tools = useComputerTools(api);
   const lockup = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false);
-  const list = useMemo(() => sortTools(tools.local?.tools), [tools.local]);
-  const agent = list.find((tool) => tool.kind === 'agent' && tool.usable);
-  // The launch splash lockup glides into this heading (SP-C).
+  const list = useMemo(() => checkOrder(tools.local?.tools), [tools.local]);
+  const agent = sortTools(list).find((tool) => tool.kind === 'agent' && tool.usable);
+  // The launch splash lockup glides into this lockup (SP-C5).
   useLayoutEffect(() => {
     if (!lockup.current) return;
     hideSplash({ glideTo: lockup.current });
@@ -140,9 +149,16 @@ export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResu
         <div className="st-first-run-column">
           <div ref={lockup} id="first-run-lockup" className="st-first-run-lockup">
             <img src="./brand/kalkidan-mark.svg" alt="" aria-hidden="true" width="32" height="32" />
-            <h1>Almost ready</h1>
+            <span>Kalkidan</span>
           </div>
-          <ul className="st-check-list" aria-label="Your tools" aria-busy={!tools.computers}>
+          <h1 id="first-run-tools" className="st-first-run-heading">
+            Your tools
+          </h1>
+          <ul
+            className="st-check-list"
+            aria-labelledby="first-run-tools"
+            aria-busy={!tools.computers}
+          >
             {list.map((tool) => (
               <CheckRow key={tool.tool} tool={tool} />
             ))}
@@ -153,17 +169,25 @@ export function Welcome({ api, onDone }: { api: API; onDone: (result: SignInResu
           <div className="st-check-actions">
             {agent ? (
               <>
-                <Button variant="secondary" disabled={busy} onClick={() => restartKalkidan(api)}>
-                  <RotateCw />
-                  Restart
+                <Button
+                  className="st-check-continue"
+                  disabled={busy}
+                  aria-label={`Continue with ${agent.name}`}
+                  onClick={() => void finish()}
+                >
+                  Continue
                 </Button>
-                <Button disabled={busy} onClick={() => void finish()}>
-                  Continue with {agent.name}
+                <Button
+                  variant="secondary"
+                  className="bg-background shadow-[inset_0_0_0_1px_var(--border)] hover:bg-[var(--fill)]"
+                  disabled={busy}
+                  onClick={() => restartKalkidan(api)}
+                >
+                  Restart Kalkidan
                 </Button>
               </>
             ) : (
               <Button disabled={busy || !tools.computers} onClick={() => restartKalkidan(api)}>
-                <RotateCw />
                 Restart Kalkidan
               </Button>
             )}

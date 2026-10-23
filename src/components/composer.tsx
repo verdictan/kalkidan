@@ -1,7 +1,8 @@
+import { useEffect, useState } from 'react';
 import type { ComponentProps, KeyboardEvent, ReactNode, Ref } from 'react';
-import { ArrowUp, Check, FolderPlus, Plus } from 'lucide-react';
+import { onChatPreferencesChange, newChatAccess, saveNewChatAccess } from '../lib/chat-preferences';
+import { ArrowUp, Check, ChevronDown, FolderPlus, Lock, PencilLine, Plus } from 'lucide-react';
 import type { IdentityColor } from '../domain/identity';
-import { newChatAccessKey } from '../lib/chat-preferences';
 import { cn } from '../lib/utils';
 import { hasPrimaryModifier, isMac, shortcutLabel } from '../lib/platform';
 import { Hint } from './hint';
@@ -63,16 +64,6 @@ export function saveAccess(repositoryId: string | undefined, value: ChatAccess) 
   }
 }
 
-/** The "New chats start as" choice of Settings › General, when the user made one. */
-export function defaultAccess(): ChatAccess | null {
-  try {
-    const value = localStorage.getItem(newChatAccessKey);
-    return value === 'edit' || value === 'read' ? value : null;
-  } catch {
-    return null;
-  }
-}
-
 // The model that the Overview composer chose for the next new chat of an agent. The chat view
 // that opens next takes it once.
 const nextModels = new Map<string, string>();
@@ -94,16 +85,94 @@ export function takeNextChatModel(agent: string) {
 export const composerChipClass =
   'gap-1.5 px-2 text-sm font-normal has-[>svg]:px-2 disabled:opacity-100';
 
+const accessModes: Record<ChatAccess, { label: string; description: string }> = {
+  read: { label: 'Read only', description: 'The agent reads files and does not change them.' },
+  edit: { label: 'Can edit', description: 'The agent can change files in its branch copy.' },
+};
+
 /**
- * @deprecated Round 11 removes the access pill (CH-B). Each chat edits its own branch copy, and
- * "Read only" is in the chat menu. It renders nothing; remove it from callers.
+ * The access chip of every composer (SH-A1, ST-C2, ST-C3): "Can edit" with a pencil or "Read
+ * only" with a lock. Its menu changes the access of the chat. While the agent works, it is a
+ * plain label.
  */
-export function AccessPill(_props: {
+export function AccessPill({
+  value,
+  onChange,
+  disabled,
+}: {
   value: ChatAccess;
-  onChange: (value: ChatAccess) => void;
+  onChange?: (value: ChatAccess) => void;
   disabled?: boolean;
 }) {
-  return null;
+  const mode = accessModes[value];
+  const icon = value === 'read' ? <Lock aria-hidden="true" /> : <PencilLine aria-hidden="true" />;
+  if (!onChange)
+    return (
+      <span className={cn('composer-access composer-folder-label', composerChipClass)}>
+        <span className="sr-only">Access: </span>
+        {icon}
+        <span className="composer-access-label">{mode.label}</span>
+      </span>
+    );
+  return (
+    <DropdownMenu>
+      <Hint label="Change what the agent can do" disabled={disabled}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="chip"
+            className={cn('composer-access', composerChipClass)}
+            aria-label={`Access: ${mode.label}`}
+            disabled={disabled}
+          >
+            {icon}
+            <span className="composer-access-label">{mode.label}</span>
+            {!disabled && <ChevronDown aria-hidden="true" />}
+          </Button>
+        </DropdownMenuTrigger>
+      </Hint>
+      <DropdownMenuContent align="start" width="wide">
+        {(Object.keys(accessModes) as ChatAccess[]).map((key) => (
+          <DropdownMenuItem
+            key={key}
+            // Two lines: the label and its description.
+            className="h-auto items-start py-1.5 [&>svg]:mt-0.5"
+            onSelect={() => onChange(key)}
+          >
+            {key === 'read' ? <Lock /> : <PencilLine />}
+            <span className="composer-access-text">
+              <span>{accessModes[key].label}</span>
+              <span className="composer-access-description">{accessModes[key].description}</span>
+            </span>
+            {key === value && <Check aria-label="Selected" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+/**
+ * The access chip of a composer that starts a new chat (the Overview and the first composer).
+ * It shows the access that the new chat gets in this repo and keeps a change for that repo, so
+ * the chat opens with the same access.
+ */
+export function NewChatAccessPill({ repoId }: { repoId?: string }) {
+  const [value, setValue] = useState<ChatAccess>(() => readAccess(repoId) || newChatAccess());
+  useEffect(() => {
+    const read = () => setValue(readAccess(repoId) || newChatAccess());
+    read();
+    return onChatPreferencesChange(read);
+  }, [repoId]);
+  return (
+    <AccessPill
+      value={value}
+      onChange={(next) => {
+        setValue(next);
+        if (repoId) saveAccess(repoId, next);
+        else saveNewChatAccess(next);
+      }}
+    />
+  );
 }
 
 /**
