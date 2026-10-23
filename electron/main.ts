@@ -231,6 +231,10 @@ function notifyVerdictan() {
         .catch(() => {});
     // The browser sign-in finished. Bring Kalkidan to the front again.
     if (previousPhase.startsWith('["authorizing"')) focusMainWindow();
+    // The setup of this computer: the bootstrap when needed, then its gateway. Once for each
+    // account, in the background, so the sign-in does not wait for it.
+    const setupKey = accountSetupKey();
+    if (setupKey) void verdictan?.signInSetup.run(setupKey).catch(() => {});
   }
   if (key === lastAccount) {
     if (phase !== previousPhase) broadcastVerdictanChanged();
@@ -249,6 +253,13 @@ function notifyVerdictan() {
   stopDispatch();
   broadcastVerdictanChanged();
   if (account?.state === 'authenticated') restoreDispatch();
+}
+/** The setup key of the signed-in account, as `VerdictanSetupService.inspect` makes it. */
+function accountSetupKey() {
+  const account = verdictan?.account.status().account;
+  return account?.state === 'authenticated' && account.organizationId && account.userId
+    ? identityKey(account.apiUrl, account.organizationId, account.userId)
+    : undefined;
 }
 /** Shows and focuses the window that the user used last, after a browser sign-in. */
 function focusMainWindow() {
@@ -630,7 +641,19 @@ app.whenReady().then(async () => {
             : 'unknown',
     }));
   });
-  handle('verdictan-setup', () => verdictan!.setup.status());
+  // Settings reads the setup without the bootstrap. The run after sign-in did it. While that
+  // run works, Settings waits for its result.
+  handle('verdictan-setup', async () => {
+    const key = accountSetupKey();
+    if (key) await verdictan!.signInSetup.pending(key)?.catch(() => {});
+    return verdictan!.setup.current();
+  });
+  // Refresh in Settings runs the setup of this computer again: the bootstrap and the gateway.
+  handle('verdictan-setup-refresh', async () => {
+    const key = accountSetupKey();
+    if (key) await verdictan!.signInSetup.run(key, true).catch(() => {});
+    return verdictan!.setup.current();
+  });
   handle('verdictan-select', (agent, selection) => verdictan!.setup.select(agent, selection));
   handle('verdictan-set-computer-agent', (computer, agentId) =>
     verdictan!.setup.setComputerAgent(computer, agentId),

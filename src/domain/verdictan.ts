@@ -77,6 +77,8 @@ export interface VerdictanAPI {
   verdictanSetRegion(region: 'eu' | 'us'): Promise<VerdictanStatus>;
   onVerdictanChanged?(listener: () => void): () => void;
   verdictanSetup(): Promise<VerdictanSetup>;
+  /** Runs the setup of this computer again: the bootstrap when needed, and its gateway. */
+  verdictanSetupRefresh?(): Promise<VerdictanSetup>;
   verdictanSelect(
     agent: 'codex' | 'claude',
     selection: VerdictanSelection,
@@ -250,6 +252,13 @@ export interface VerdictanSetup {
    * `setup.ensure_default`, so it cannot run the setup. See `supportWindow.runtime.setupMinimum`.
    */
   bootstrapIssue?: 'team_required' | 'failed' | 'runtime_too_old';
+  /** The safe error code of the setup step that failed. Settings shows it with the words. */
+  setupCode?: string;
+  /**
+   * The gateway of this computer that Kalkidan made after sign-in, for the agent of this
+   * computer. `skipped`: the setup has no agent for this computer yet. Missing before the run.
+   */
+  computerGateway?: { status: 'created' | 'existing' | 'skipped' | 'failed'; code?: string };
   /**
    * Agents that the user can attach a host to. Missing when the runtime does not send the
    * list (older runtimes); then the team and policy choice applies.

@@ -557,6 +557,7 @@ export const demo: API = {
     throw new Error('Project services require the desktop app.');
   },
   verdictanSetup: async () => demoSetup(),
+  verdictanSetupRefresh: async () => demoSetup(),
   verdictanSelect: async (agent, selection) => {
     if (!demoAccount.signedIn) throw new Error(managedErrorText('desktop.auth_required'));
     demoSelections = { ...demoSelections, [agent]: selection };

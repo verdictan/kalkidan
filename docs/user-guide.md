@@ -64,6 +64,17 @@ managed runtime, account authorization, and launch checks. It does not use a
 native CLI login as a fallback. Managed native execution is available on accepted
 macOS and Linux hosts. Windows managed execution stays blocked.
 
+After you sign in, Kalkidan sets up this computer in the background. It reads the setup of
+your organization. When the organization needs the one-time Kalkidan setup, Kalkidan runs it.
+Then Kalkidan makes the gateway of this computer for the agent of this computer. Sign-in does
+not wait for this setup. SSH hosts keep their own setup. Open **Settings** › **Computers** ›
+**Details** to see the result in the **Setup of this computer** row. Select **Refresh** to run
+the setup again. When a step fails, the row shows the error code.
+
+When Verdictan does not accept your session, the account button and **Settings** ›
+**Account** show **Sign in again** with the error code, for example
+`desktop.auth_expired`. Sign in again to continue.
+
 Kalkidan runs agents only through managed Verdictan agents. This rule applies to
 new sessions, resumed and forked conversations, automatic dispatch, SSH hosts,
 subscription access, organization provider connections, and Memory extraction.

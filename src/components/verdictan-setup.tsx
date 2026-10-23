@@ -114,7 +114,8 @@ function setupNotice(
           ? 'Kalkidan could not finish its setup. You need a team that can make and deploy agents. Ask an organization administrator to add you to one.'
           : setup.bootstrapIssue === 'runtime_too_old'
             ? runtimeSetupNotice
-            : 'Kalkidan could not finish its setup now. Kalkidan tries again when you open this window again.',
+            : 'Kalkidan could not finish its setup now. Select Refresh in Settings › Computers › Details to try again.' +
+              (setup.setupCode ? ` Code: ${setup.setupCode}` : ''),
     };
   if (recovery)
     return {

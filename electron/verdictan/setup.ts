@@ -111,8 +111,20 @@ const sessionCodes = new Set([
   'desktop.auth_required',
   'desktop.auth_expired',
   'desktop.session_rejected',
+  'desktop.identity_mismatch',
   'desktop.region_required',
 ]);
+/** The fields that the bootstrap check adds to an inspection. A plain read keeps them. */
+const outcomeFields = [
+  'bootstrapReadiness',
+  'policyReadiness',
+  'bootstrapIssue',
+  'bootstrapped',
+  'setupCode',
+  'defaultUnavailable',
+  'defaultEnsured',
+] as const;
+type SetupOutcome = Partial<Pick<VerdictanSetup, (typeof outcomeFields)[number]>>;
 type Inspection = Awaited<ReturnType<VerdictanSetupService['inspect']>>;
 /** The saved choices of an account: the coding agent selections and the computer agents. */
 export type VerdictanChoices = Pick<
@@ -281,20 +293,76 @@ export class VerdictanSetupService {
    */
   status(): Promise<VerdictanSetup> {
     this.pending ??= this.check()
-      .then((setup) =>
-        setup.bootstrapped || !this.ran || this.ran.key !== this.lastKey
-          ? setup
-          : { ...setup, bootstrapped: this.ran.result },
-      )
+      .then((setup) => {
+        const result =
+          setup.bootstrapped || !this.ran || this.ran.key !== this.lastKey
+            ? setup
+            : { ...setup, bootstrapped: this.ran.result };
+        this.keepOutcome(result);
+        return result;
+      })
       .finally(() => {
         this.pending = undefined;
       });
     return this.pending;
   }
+  /**
+   * The result of the last bootstrap check, by account. A plain read adds it while the
+   * readiness that the check started from does not change.
+   */
+  private outcome?: {
+    key: string;
+    from: Pick<VerdictanSetup, 'bootstrapReadiness' | 'policyReadiness'>;
+    fields: SetupOutcome;
+    gateway?: VerdictanSetup['computerGateway'];
+  };
+  private firstReadiness?: Pick<VerdictanSetup, 'bootstrapReadiness' | 'policyReadiness'>;
+  private keepOutcome(setup: VerdictanSetup) {
+    if (!this.lastKey || !this.firstReadiness) return;
+    const fields: SetupOutcome = {};
+    for (const field of outcomeFields)
+      if (setup[field] !== undefined) Object.assign(fields, { [field]: setup[field] });
+    this.outcome = {
+      key: this.lastKey,
+      from: this.firstReadiness,
+      fields,
+      gateway: this.outcome?.key === this.lastKey ? this.outcome.gateway : undefined,
+    };
+  }
+  /** Keeps the result of the gateway of this computer for the account. See `SignInSetup`. */
+  keepGateway(key: string, gateway: NonNullable<VerdictanSetup['computerGateway']>) {
+    if (this.outcome?.key === key) this.outcome.gateway = gateway;
+    else this.outcome = { key, from: {}, fields: {}, gateway };
+  }
+  /**
+   * The setup for Settings, without the bootstrap. It adds the result of the last bootstrap
+   * check and of the gateway of this computer. `SignInSetup` runs the bootstrap after sign-in.
+   */
+  async current(): Promise<VerdictanSetup> {
+    const { key, setup } = await this.inspect();
+    const outcome = this.outcome?.key === key ? this.outcome : undefined;
+    if (!outcome) return setup;
+    const same =
+      outcome.from.bootstrapReadiness === setup.bootstrapReadiness &&
+      outcome.from.policyReadiness === setup.policyReadiness;
+    return {
+      ...setup,
+      ...(same
+        ? outcome.fields
+        : outcome.fields.bootstrapped
+          ? { bootstrapped: outcome.fields.bootstrapped }
+          : {}),
+      ...(outcome.gateway ? { computerGateway: outcome.gateway } : {}),
+    };
+  }
   private lastKey?: string;
   private async check(): Promise<VerdictanSetup> {
     const first = await this.inspect();
     this.lastKey = first.key;
+    this.firstReadiness = {
+      bootstrapReadiness: first.setup.bootstrapReadiness,
+      policyReadiness: first.setup.policyReadiness,
+    };
     const bootstrap = first.setup.bootstrapReadiness === 'bootstrap_available';
     // Older APIs do not report the bootstrap. Then the earlier default check applies.
     if (!bootstrap && first.setup.policyReadiness !== 'default_creatable') return first.setup;
@@ -307,7 +375,7 @@ export class VerdictanSetupService {
       const code = error instanceof DesktopProtocolError ? error.code : '';
       if (sessionCodes.has(code)) throw error;
       return bootstrap
-        ? { ...first.setup, bootstrapIssue: 'failed' }
+        ? { ...first.setup, bootstrapIssue: 'failed', ...(code ? { setupCode: code } : {}) }
         : { ...first.setup, defaultUnavailable: true };
     }
     if (capabilities.includes('setup.bootstrap'))
@@ -358,7 +426,7 @@ export class VerdictanSetupService {
       if (code === 'desktop.setup_permission_required')
         return { ...first.setup, policyReadiness: 'default_permission_required' };
       // The inspection is still correct. Refresh tries again.
-      return { ...first.setup, bootstrapIssue: 'failed' };
+      return { ...first.setup, bootstrapIssue: 'failed', ...(code ? { setupCode: code } : {}) };
     }
     this.ran = { key: first.key, result };
     try {
@@ -511,7 +579,8 @@ export class VerdictanSetupService {
       ...(value.providerAccessMode ? { providerAccessMode: value.providerAccessMode } : {}),
       model: value.model,
     });
-    return this.status();
+    // A plain read: saving a choice never starts the bootstrap.
+    return this.current();
   }
   /**
    * Sets the agent that new chats on a computer use: 'local' or the SSH host ID. Codex and
@@ -524,6 +593,6 @@ export class VerdictanSetupService {
     if (!findAgent(setup, agentId))
       throw new DesktopProtocolError('desktop.setup_agent_unavailable');
     await this.store.setComputerAgent(key, computer, agentId);
-    return this.status();
+    return this.current();
   }
 }
