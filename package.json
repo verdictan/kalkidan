@@ -144,7 +144,7 @@
     "c8": "12.0.0",
     "concurrently": "^10.0.6",
     "electron": "^44.9.0",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^26.17.0",
     "esbuild": "^0.28.2",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
