@@ -10,7 +10,7 @@
     "build:electron": "esbuild electron/main.ts electron/preload.ts electron/remote-agent.ts --bundle --platform=node --external:electron --external:node-pty --outdir=dist-electron --out-extension:.js=.cjs",
     "build": "tsc --noEmit && vite build && npm run build:electron",
     "test": "tsx --test tests/*.test.ts",
-    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:mac": "npm run build && electron-builder --mac --arm64",
     "preview": "vite --host 127.0.0.1",
     "test:ui": "playwright test",
     "test:desktop": "npm run build && node tests/desktop.smoke.mjs",
@@ -48,8 +48,18 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "icon": "build/icons/icon.icns"
     },
