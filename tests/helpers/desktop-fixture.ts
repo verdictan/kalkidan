@@ -318,6 +318,9 @@ export async function desktopFixture(platform = 'linux', failure = '') {
     'node:fs/promises': {
       readFile: async (path: string) => {
         if (path.endsWith('verdictan-region.json')) return JSON.stringify({ region: 'eu' });
+        // No saved account list yet: the desktop makes one from the region.
+        if (path.endsWith('verdictan-accounts.json'))
+          throw Object.assign(new Error('missing'), { code: 'ENOENT' });
         if (path.endsWith('projects.json')) {
           if (failure === 'projects') return 'bad';
           if (failure === 'invalidProjects') return '{}';

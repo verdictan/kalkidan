@@ -246,6 +246,7 @@ export function SendFailure({
   onFork,
   busy,
   unsaved,
+  autoRetryMs,
 }: {
   /** The name of the agent, for example "Codex". */
   agentName: string;
@@ -258,6 +259,8 @@ export function SendFailure({
   busy?: boolean;
   /** The agent did not start, so the chat has no saved session. It closes when the app quits. */
   unsaved?: boolean;
+  /** The wait before the chat sends again by itself, after a short gateway or account wait. */
+  autoRetryMs?: number;
 }) {
   return (
     <ChatCard
@@ -270,6 +273,8 @@ export function SendFailure({
       <p className="chat-card-body">
         {error.message}
         {unsaved && ' This chat is saved after the agent starts.'}
+        {autoRetryMs !== undefined &&
+          ` Kalkidan tries again in ${Math.round(autoRetryMs / 1000)} seconds.`}
       </p>
       <AgentErrorActions
         error={error}

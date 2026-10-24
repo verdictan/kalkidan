@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronsUpDown,
+  Check,
+  Plus,
   CircleAlert,
   ExternalLink,
   LogOut,
   Settings,
   UserRound,
 } from 'lucide-react';
+import type { SavedVerdictanAccount, VerdictanStatus } from '../domain/verdictan';
 import type { API } from '../api/contracts';
 import { keychainHostsMessage, keychainRefusedCode } from '../domain/verdictan';
 import { accountNames, rejectedSessionText, verdictanErrorMessage } from '../lib/verdictan-labels';
@@ -63,6 +66,90 @@ function useMenuOpen() {
   return [open, setOpen] as const;
 }
 
+/** The name of a saved account, for menus and messages. */
+export function savedAccountName(account: SavedVerdictanAccount) {
+  return account.userName || account.userEmail || 'New account';
+}
+
+let switching = false;
+/**
+ * Makes another saved account active, or adds a new one (no `id`). The other accounts keep
+ * their sign-ins. An account without a sign-in opens the sign-in. The account menu and search
+ * use this function.
+ */
+export async function switchVerdictanAccount(api: API, current: string | undefined, id?: string) {
+  if (switching || !api.verdictanAddAccount || !api.verdictanSwitchAccount) return;
+  switching = true;
+  try {
+    const result = id ? await api.verdictanSwitchAccount(id) : await api.verdictanAddAccount();
+    // A canceled confirmation returns the current account.
+    if (result.activeAccountId === current) return;
+    if (result.phase !== 'authenticated') {
+      startSignIn('login');
+      return;
+    }
+    const names = accountNames(result);
+    showToast(`Switched to ${names.user || names.email || 'your other account'}`);
+  } catch {
+    showToast({
+      message: 'Could not switch accounts. Check that the runtime is ready, then try again.',
+      tone: 'error',
+    });
+  } finally {
+    switching = false;
+  }
+}
+
+/** Saved profiles keep their sign-ins. Only one profile runs managed work at a time. */
+function SavedAccountItems({ api, status }: { api: API; status?: VerdictanStatus }) {
+  const [busy, setBusy] = useState(false);
+  if (!api.verdictanAddAccount || !api.verdictanSwitchAccount) return null;
+  const active = status?.activeAccountId;
+  async function select(id?: string) {
+    if (id === active) return;
+    setBusy(true);
+    try {
+      await switchVerdictanAccount(api, active, id);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <DropdownMenuLabel>Accounts</DropdownMenuLabel>
+      {(status?.savedAccounts || []).map((account) => {
+        const current = account.id === active;
+        return (
+          <DropdownMenuItem
+            key={account.id}
+            disabled={busy && !current}
+            aria-current={current ? 'true' : undefined}
+            onSelect={() => void select(account.id)}
+          >
+            <Avatar text={initials(account.userName || account.userEmail)} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{savedAccountName(account)}</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {[
+                  account.organizationName,
+                  account.region ? regionNames[account.region] : 'Choose a region',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </span>
+            {current && <Check className="size-4" aria-label="Active account" />}
+          </DropdownMenuItem>
+        );
+      })}
+      <DropdownMenuItem disabled={busy} onSelect={() => void select()}>
+        <Plus className="size-4" /> Add account
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+    </>
+  );
+}
+
 /** The Settings item of the account menu. Settings also opens with ⌘,. */
 function SettingsItem() {
   return (
@@ -94,14 +181,21 @@ export function AccountMenu({ api }: { api: API }) {
   async function signOut() {
     setSigningOut(true);
     try {
+      const before = status?.activeAccountId;
       const result = await api.verdictanLogout();
-      if (result.phase === 'authenticated') return;
+      // With other saved accounts, Kalkidan continues with one of them.
+      const next = result.activeAccountId !== before ? accountNames(result) : undefined;
+      if (result.phase === 'authenticated' && !next) return;
       if (result.remoteRevocationPending)
         showToast({
           message:
             'You are signed out on this computer. Kalkidan could not confirm that the service removed the access.',
           tone: 'error',
         });
+      else if (next && result.phase === 'authenticated')
+        showToast(
+          `Signed out. Kalkidan now uses ${next.user || next.email || 'your other account'}.`,
+        );
       else showToast('Signed out');
     } catch {
       showToast({ message: 'Kalkidan could not sign out. Try again.', tone: 'error' });
@@ -146,6 +240,18 @@ export function AccountMenu({ api }: { api: API }) {
             <span className="st-account-label">{label}</span>
           </span>
         )}
+        {api.verdictanSwitchAccount && (
+          <DropdownMenu open={open} onOpenChange={setOpen}>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="row-focus p-2" aria-label="Saved accounts">
+                <ChevronsUpDown className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className={menuClass}>
+              <SavedAccountItems api={api} status={status} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     );
   }
@@ -186,6 +292,7 @@ export function AccountMenu({ api }: { api: API }) {
             </DropdownMenuLabel>
           )}
           {header.length > 0 && <DropdownMenuSeparator />}
+          <SavedAccountItems api={api} status={status} />
           <SettingsItem />
           {typeof api.verdictanOpenConsole === 'function' && (
             <DropdownMenuItem

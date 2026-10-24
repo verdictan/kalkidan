@@ -183,13 +183,14 @@ test('profile owner coalesces checks, retains unready capabilities and opens onl
   assert.equal((await logout).remoteRevocationPending, true);
   assert.equal(account.status().account, undefined);
 });
-test('a launch waits for a running status check and refuses during sign-in', async (t) => {
+test('a launch waits for a running status check and names an open sign-in', async (t) => {
   const f = fixture();
   const account = new VerdictanAccountService({
     apiOrigin: 'https://api.verdictan.com',
     consoleOrigin: 'https://console.verdictan.com',
     connect: async () => f.client,
     openBrowser: async () => {},
+    launchWaitMs: 20,
   });
   t.after(() => account.dispose());
   const checked = account.check();
@@ -207,8 +208,9 @@ test('a launch waits for a running status check and refuses during sign-in', asy
   // The account owner watches each result of the client, so the client is a wrapper.
   assert.equal(typeof (await client).request, 'function');
   assert.equal(launched, true);
+  // A browser sign-in that does not finish in the wait gets its own code, not a general lock.
   void account.authorize('login').catch(() => undefined);
-  await assert.rejects(account.runtimeClient(), /operation_in_progress/);
+  await assert.rejects(account.runtimeClient(), /desktop\.authorization_in_progress/);
 });
 test('account checks reject wrong identity origins and authorization rejects off-origin links', async (t) => {
   assert.throws(() =>

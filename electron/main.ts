@@ -1,3 +1,4 @@
+import { VerdictanAccounts, accountProfile } from './verdictan/accounts';
 import {
   keychainRefusedCode,
   signOutDetail,
@@ -202,6 +203,7 @@ let resolveManagedScope: (
   taskId?: string,
   hostId?: string,
 ) => Promise<Session['governanceScope']> = async () => undefined;
+let savedAccounts: VerdictanAccounts;
 let changingAccount = false;
 let accountEpoch = 0;
 let stopDispatch = () => {};
@@ -219,6 +221,11 @@ function notifyVerdictan() {
     rebuildMenu();
   }
   const account = status?.account;
+  if (savedAccounts && account?.state === 'authenticated')
+    void savedAccounts
+      .remember(savedAccounts.active().id, account)
+      .then(broadcastVerdictanChanged)
+      .catch(() => {});
   const key = JSON.stringify([
     verdictan?.region,
     account?.state,
@@ -268,7 +275,7 @@ function notifyVerdictan() {
   }
   stopDispatch();
   broadcastVerdictanChanged();
-  if (account?.state === 'authenticated') restoreDispatch();
+  if (account?.state === 'authenticated' && !changingAccount) restoreDispatch();
 }
 /** The setup key of the signed-in account, as `VerdictanSetupService.inspect` makes it. */
 function accountSetupKey() {
@@ -603,9 +610,11 @@ app.whenReady().then(async () => {
       proxyLogin: (challenge, retry) => proxyAuthenticator.login(challenge, retry),
     }),
   );
+  savedAccounts = await VerdictanAccounts.open(dataRoot, await savedVerdictanRegion(dataRoot));
   const makeVerdictan = (region: VerdictanRegion | undefined) =>
     createVerdictanServices({
       region,
+      profile: accountProfile(savedAccounts.active()),
       changed: notifyVerdictan,
       root: dataRoot,
       hostId: 'local',
@@ -614,19 +623,20 @@ app.whenReady().then(async () => {
           ? localComputerName()
           : remote?.list().find((host) => host.id === hostId)?.name,
       desktopVersion: app.getVersion(),
-      busy: () => chatRunner.runningCount() > 0,
+      busy: () => changingAccount || chatRunner.runningCount() > 0,
       openBrowser: (url) => shell.openExternal(url),
       request: releaseRequest,
     });
-  verdictan = makeVerdictan(await savedVerdictanRegion(dataRoot));
-  // The launch installs or repairs the managed gateway runtime in the background. Settings
-  // shows only a failure. A failed install starts again after sign-in and at the next launch.
-  void verdictan.installer
+  verdictan = makeVerdictan(savedAccounts.active().region);
+  // The launch repairs the runtime in the background. Ignore a result from a previous account.
+  const initialVerdictan = verdictan;
+  void initialVerdictan.installer
     .check()
     .then(async (status) => {
+      if (verdictan !== initialVerdictan) return;
       if (installOnLaunch && status && needsRepair(status) && !status.installing)
         void gatewayRuntime.ensure();
-      await verdictan!.account.check();
+      await initialVerdictan.account.check();
     })
     .catch(() => {});
   const approvedHelper = readFile(join(__dirname, 'remote-agent.cjs')).then((bytes) =>
@@ -681,7 +691,68 @@ app.whenReady().then(async () => {
   handle('verdictan-set-computer-agent', (computer, agentId) =>
     verdictan!.setup.setComputerAgent(computer, agentId),
   );
-  const accountStatus = () => ({ ...verdictan!.account.status(), region: verdictan!.region });
+  const accountStatus = () => ({
+    ...verdictan!.account.status(),
+    region: verdictan!.region,
+    activeAccountId: savedAccounts.active().id,
+    savedAccounts: savedAccounts.snapshot().accounts,
+  });
+  async function switchAccount(id?: string) {
+    if (changingAccount) throw new Error('Account is changing. Wait for the switch to finish.');
+    if (id !== undefined) {
+      savedAccounts.get(id);
+      if (id === savedAccounts.active().id) return accountStatus();
+    }
+    changingAccount = true;
+    try {
+      const agents = chatRunner.runningCount();
+      const hosts = remote.list().filter((host) => host.status === 'connected');
+      if (agents || hosts.length) {
+        const { response } = await dialog.showMessageBox({
+          type: 'warning',
+          buttons: ['Switch account', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+          message: 'Switch Verdictan account?',
+          detail:
+            'This stops managed work and disconnects SSH hosts. Your other accounts stay saved.',
+        });
+        if (response !== 0) return accountStatus();
+      }
+      const installation = verdictan!.installer.status();
+      if (installation?.installing) throw new Error('Wait for the runtime installation to finish.');
+      stopDispatch();
+      accountEpoch++;
+      await verdictan!.account.cancel();
+      await savedAccounts.remember(savedAccounts.active().id, verdictan!.account.status().account);
+      verdictan!.remoteBroker.reset();
+      await Promise.allSettled(hosts.map((host) => remote.call(host.id, 'managed-stop', [])));
+      for (const host of hosts) remote.disconnect(host.id);
+      chatRunner.stopAll();
+      await verdictan!.managed.stopAll();
+      const previous = savedAccounts.active();
+      const target = id ? savedAccounts.get(id) : await savedAccounts.add();
+      await savedAccounts.select(target.id);
+      // An added account that never signed in has nothing to keep.
+      if (!previous.userEmail && !previous.userName && !previous.id.startsWith('legacy-'))
+        await savedAccounts.remove(previous.id);
+      verdictan!.account.dispose();
+      verdictan = makeVerdictan(target.region);
+      notifyVerdictan();
+      await verdictan.account.check();
+      await savedAccounts.remember(target.id, verdictan.account.status().account);
+      return accountStatus();
+    } finally {
+      changingAccount = false;
+      if (verdictan?.account.status().phase === 'authenticated') restoreDispatch();
+      broadcastVerdictanChanged();
+    }
+  }
+  handle('verdictan-add-account', () => switchAccount());
+  handle('verdictan-switch-account', (id: unknown) => {
+    if (typeof id !== 'string') throw new Error('Select a saved Verdictan account.');
+    return switchAccount(id);
+  });
   handle('verdictan-status', accountStatus);
   handle('verdictan-set-region', async (region: VerdictanRegion) => {
     verdictanRegion(region);
@@ -700,6 +771,7 @@ app.whenReady().then(async () => {
       for (const host of hosts) remote.disconnect(host.id);
       chatRunner.stopAll();
       await verdictan!.managed.stopAll();
+      await savedAccounts.setRegion(region);
       await saveVerdictanRegion(dataRoot, region);
       verdictan!.account.dispose();
       verdictan = makeVerdictan(region);
@@ -716,10 +788,20 @@ app.whenReady().then(async () => {
   });
   // Each account result carries the selected region, as verdictan-status does. Without it, the
   // window shows "Region not selected" after a check.
-  const withRegion = async (status: Promise<VerdictanStatus>) => ({
-    ...(await status),
-    region: verdictan!.region,
-  });
+  const withRegion = async (status: Promise<VerdictanStatus>) => {
+    const id = savedAccounts.active().id;
+    const source = verdictan;
+    const result = await status;
+    if (source !== verdictan || id !== savedAccounts.active().id)
+      throw new Error('Account changed. Refresh this view.');
+    await savedAccounts.remember(id, result?.account);
+    return {
+      ...result,
+      region: verdictan!.region,
+      activeAccountId: id,
+      savedAccounts: savedAccounts.snapshot().accounts,
+    };
+  };
   // The renderer sends only the chat. The binding and the account stay in the main process.
   // A chat on an SSH host has its binding in the store of that host. The host returns only the
   // owner IDs. A host that is not connected, or an older host, leaves the chat as it is.
@@ -851,9 +933,23 @@ app.whenReady().then(async () => {
       );
       await verdictan!.managed.stopAll();
       chatRunner.dispose();
-      return await withRegion(verdictan!.account.logout());
+      const result = await withRegion(verdictan!.account.logout());
+      if (result.phase !== 'signed-out') return result;
+      const leaving = savedAccounts.active().id;
+      if (savedAccounts.snapshot().accounts.length === 1) {
+        await savedAccounts.forget(leaving);
+        return accountStatus();
+      }
+      // The signed-out account leaves the list. Kalkidan continues with another saved account.
+      await savedAccounts.remove(leaving);
+      verdictan!.account.dispose();
+      verdictan = makeVerdictan(savedAccounts.active().region);
+      notifyVerdictan();
+      await verdictan.account.check();
+      return { ...accountStatus(), remoteRevocationPending: result.remoteRevocationPending };
     } finally {
       changingAccount = false;
+      if (verdictan?.account.status()?.phase === 'authenticated') restoreDispatch();
       broadcastVerdictanChanged();
     }
   });

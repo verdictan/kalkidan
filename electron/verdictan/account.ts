@@ -29,9 +29,11 @@ export interface DesktopAccountOptions {
    * versions send no waiting event for these writes.
    */
   keychainPrompts?: boolean;
+  /** How long a launch waits for a running account operation. For tests. */
+  launchWaitMs?: number;
 }
 /** One backend owner serves every window. The CLI owns account secrets and PKCE. */
-/** How long a launch waits for a running status check or session renewal. */
+/** How long a launch waits for a running account operation. */
 const runtimeClientWaitMs = 30_000;
 /** The session renews this long before it expires. */
 export const renewBeforeMs = 10 * 60_000;
@@ -318,21 +320,21 @@ export class VerdictanAccountService {
   }
   /** Backend-only access. The CLI remains the single owner of account credentials. */
   async runtimeClient() {
-    // A status check or a session renewal is short. It starts with the app and with Settings, so
-    // a launch waits for it instead of refusing. Sign-in and sign-out still refuse a launch.
+    // A launch waits for an account operation instead of refusing at once: a status check, a
+    // renewal and a sign-out are short, and a browser sign-in can finish in the wait.
     const operation = this.operation;
-    if (
-      !this.disposed &&
-      operation &&
-      ['check', 'renew', 'auto-renew'].includes(this.operationKind)
-    ) {
+    if (!this.disposed && operation) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([
         operation.catch(() => undefined),
-        new Promise((done) => (timer = setTimeout(done, runtimeClientWaitMs))),
+        new Promise(
+          (done) => (timer = setTimeout(done, this.options.launchWaitMs ?? runtimeClientWaitMs)),
+        ),
       ]);
       clearTimeout(timer);
     }
+    if (!this.disposed && this.operation && this.operationKind.startsWith('authorize:'))
+      throw new DesktopProtocolError('desktop.authorization_in_progress');
     if (this.disposed || this.operation)
       throw new DesktopProtocolError('desktop.operation_in_progress');
     // After a lost or broken connection, check the account again. The UI then shows the state
