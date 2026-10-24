@@ -33,16 +33,7 @@ export interface VerdictanCapabilities {
   managedExecutionReady: boolean;
   testedAgents: { kind: 'codex' | 'claude_code'; version: string }[];
 }
-export interface SavedVerdictanAccount {
-  id: string;
-  region?: 'eu' | 'us';
-  userName?: string;
-  userEmail?: string;
-  organizationName?: string;
-}
 export interface VerdictanStatus {
-  activeAccountId?: string;
-  savedAccounts?: SavedVerdictanAccount[];
   /** Undefined until the user selects a region. */
   region?: 'eu' | 'us';
   phase:
@@ -83,10 +74,6 @@ export interface NotificationPreferences {
   needsInput: boolean;
 }
 export interface VerdictanAPI {
-  /** Switches the active profile without deleting the previous profile's credentials. */
-  verdictanSwitchAccount?(id: string): Promise<VerdictanStatus>;
-  /** Creates an empty secure profile. The user chooses its region and signs in. */
-  verdictanAddAccount?(): Promise<VerdictanStatus>;
   verdictanSetRegion(region: 'eu' | 'us'): Promise<VerdictanStatus>;
   onVerdictanChanged?(listener: () => void): () => void;
   verdictanSetup(): Promise<VerdictanSetup>;
@@ -733,8 +720,7 @@ export const managedErrors: Record<string, ManagedErrorInfo> = {
     section: 'account',
   },
   'desktop.identity_mismatch': {
-    message:
-      'The browser account or organization does not match the saved one. Choose the same account and organization, or sign out of Kalkidan first.',
+    message: 'The browser account is not the saved account. Use the same account, or sign out.',
     section: 'account',
   },
   'desktop.region_mismatch': {

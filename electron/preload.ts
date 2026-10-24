@@ -28,8 +28,6 @@ const api: API = {
   verdictanSelect: (agent, selection) => ipcRenderer.invoke('verdictan-select', agent, selection),
   verdictanSetComputerAgent: (computer, agentId) =>
     ipcRenderer.invoke('verdictan-set-computer-agent', computer, agentId),
-  verdictanAddAccount: () => ipcRenderer.invoke('verdictan-add-account'),
-  verdictanSwitchAccount: (id) => ipcRenderer.invoke('verdictan-switch-account', id),
   verdictanStatus: () => ipcRenderer.invoke('verdictan-status'),
   verdictanCheck: () => ipcRenderer.invoke('verdictan-check'),
   verdictanAuthorize: (intent) => ipcRenderer.invoke('verdictan-authorize', intent),
