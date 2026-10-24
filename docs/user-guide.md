@@ -38,7 +38,7 @@ To install a later version, run:
 brew upgrade --cask kalkidan
 ```
 
-You can also download installers from [Kalkidan releases](https://github.com/verdictan/packages/releases?q=kalkidan). Windows and macOS installers are unsigned. See [Jenkins CI and release builds](#jenkins-ci-and-release-builds) for release details.
+You can also download installers from [Kalkidan releases](https://github.com/verdictan/packages/releases?q=kalkidan). macOS installers have a Developer ID signature, and Apple notarizes them. Windows installers are unsigned. See [Jenkins CI and release builds](#jenkins-ci-and-release-builds) for release details.
 
 ### Prerequisites
 
@@ -607,7 +607,7 @@ install each new release with Homebrew or from the releases page. Keep the asset
 names `Kalkidan-VERSION-OS-ARCH.EXT` and publish `SHA256SUMS.txt`, so users can
 check each download.
 
-Each release uses `VERSION-build.TIMESTAMP.COMMIT`. Downloads include macOS Apple Silicon and Intel DMG/ZIP files, Windows x64 NSIS/ZIP files, and Linux x64 AppImage/DEB files. The installers are unsigned. macOS installers are not notarized. DEB files are standalone downloads, not an APT repository.
+Each release uses `VERSION-build.TIMESTAMP.COMMIT`. Downloads include macOS Apple Silicon DMG/ZIP files, Windows x64 NSIS/ZIP files, and Linux x64 AppImage/DEB files. There are no macOS Intel files. The trusted release job signs the macOS app, the ZIP, and the DMG with a Developer ID, and Apple notarizes them. The job staples the notarization tickets. Pull request builds and local builds stay unsigned. Windows installers are unsigned. DEB files are standalone downloads, not an APT repository.
 
 A failed release fails its main build. It does not cause an endless timer retry or block the next main push. To retry a failed release, rebuild its main/master job. To republish a successful build, run the controller job with that build's SHA, branch, and build number. Retrying an older build does not replace a newer release in Homebrew or the latest-release pointer.
 

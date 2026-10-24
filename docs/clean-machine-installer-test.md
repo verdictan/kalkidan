@@ -86,6 +86,22 @@ the developer account, not a clean computer.
 
 A macOS zip built from this change (`mac.identity=null`) gives the same signature, Gatekeeper, and notarization results. A fix needs a Developer ID certificate and notarization in the release job.
 
+Date: 2026-10-24. Installer: `Kalkidan-0.1.0-build.1792804392.248356f1ee1a-mac-arm64.dmg`, the
+first release that the trusted release job signs and notarizes. Computer: a Mac with Apple silicon
+(macOS 26.7.1), the developer account, not a clean computer. The download has a quarantine attribute.
+
+| Check                                                  | Result                                                      |
+| ------------------------------------------------------ | ----------------------------------------------------------- |
+| Digest matches `SHA256SUMS.txt`                        | Pass                                                        |
+| Disk image valid, opens, has the Applications shortcut | Pass                                                        |
+| App matches the processor (arm64)                      | Pass                                                        |
+| Code signature valid                                   | Pass                                                        |
+| Developer ID signature                                 | Pass: "Developer ID Application: Dennis Otugo (8GSFQM95QW)" |
+| Gatekeeper accepts the app                             | Pass                                                        |
+| Notarization ticket on the app                         | Pass                                                        |
+| Notarization ticket on the disk image                  | Pass: `spctl` gives "Notarized Developer ID"                |
+| App starts from a quarantined copy                     | Not run: this check used no `--launch`                      |
+
 Linux: an AppImage built from this change in the `ci/` image, checked in a new container with an
 empty home folder, no keyring, and no D-Bus session.
 
