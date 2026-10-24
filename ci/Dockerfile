@@ -1,4 +1,5 @@
-FROM node:24.21.0-bookworm-slim AS test
+ARG NODE_VERSION=24.22.0
+FROM node:${NODE_VERSION}-bookworm-slim AS test
 ENV CI=true PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 WORKDIR /workspace
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ \
@@ -6,8 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 COPY package.json package-lock.json ./
 # npm ci runs prepare before the full source tree is copied.
 COPY .husky/install.mjs .husky/install.mjs
-RUN npm install --global npm@12.2.1 \
-    && npm ci \
+RUN --mount=type=cache,target=/root/.npm npm install --global "$(node -p 'require("./package.json").packageManager')" \
+    && npm ci --prefer-offline --no-audit --no-fund \
+    && node node_modules/electron/install.js \
     && npx playwright install --with-deps chromium \
     && apt-get update && apt-get install -y --no-install-recommends git xvfb xauth openssl libnss3-tools \
     && rm -rf /var/lib/apt/lists/* \
@@ -24,6 +26,7 @@ RUN echo "Validation run: ${CI_RUN_ID}"; \
     echo "$status" > /out/exit-code; \
     for dir in test-results playwright-report coverage/backend; do \
       if [ -d "$dir" ]; then cp -R "$dir" /out/; fi; \
-    done
+    done; \
+    if [ -d ci-results ]; then cp -R ci-results/. /out/; fi
 FROM scratch AS results
 COPY --from=test /out/ /
