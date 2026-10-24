@@ -123,7 +123,11 @@ interface ErrorCopy {
   secondary?: { label: string; run: () => void };
 }
 
-const connectionCode = /^desktop\.(transport_\w+|gateway_\w+|network_\w+|offline)$/;
+const connectionCode = /^desktop\.(network_\w+|offline)$/;
+// The local gateway process stopped or is not ready. This is not a problem of the internet.
+const gatewayCode = /^desktop\.(transport_\w+|gateway_\w+|operation_in_progress)$/;
+/** The waits before each automatic try after a gateway failure. */
+const gatewayRetryMs = [2000, 4000, 8000];
 const billingCodes = new Set([
   'desktop.setup_bootstrap_required',
   'desktop.setup_default_configuration_required',
@@ -175,6 +179,9 @@ export function SignInSteps({
   // The button that shows "Getting ready…" while the runtime installs.
   const [preparing, setPreparing] = useState<SignInIntent>();
   const [errorCode, setErrorCode] = useState('');
+  const [signingOut, setSigningOut] = useState(false);
+  const [recoveryLabel, setRecoveryLabel] = useState('Signing out…');
+  const signOutPending = useRef(false);
   const [runtimeReason, setRuntimeReason] = useState('');
   // A setup error that stops managed agents for the organization, for example billing.
   const [setupError, setSetupError] = useState('');
@@ -334,6 +341,79 @@ export function SignInSteps({
     }
   }
 
+  /** Clear a saved identity only after the user selects the sign-out action. */
+  async function signOutSavedAccount() {
+    if (signOutPending.current) return;
+    signOutPending.current = true;
+    setRecoveryLabel('Signing out…');
+    setSigningOut(true);
+    const id = ++attempt.current;
+    try {
+      const result = await api.verdictanLogout();
+      if (!live.current || id !== attempt.current) return;
+      account.setStatus(result);
+      if (result.phase !== 'signed-out') {
+        showToast({
+          message: 'The saved account was not signed out. Try again when ready.',
+          tone: 'error',
+        });
+        return;
+      }
+      setLastUrl('');
+      setErrorCode('');
+      setView('start');
+      if (result.remoteRevocationPending)
+        showToast({
+          message: 'Signed out on this computer. The service has not confirmed access removal.',
+          tone: 'error',
+        });
+    } catch {
+      if (live.current && id === attempt.current)
+        showToast({
+          message: 'Could not sign out of the saved account. Try again.',
+          tone: 'error',
+        });
+    } finally {
+      signOutPending.current = false;
+      if (live.current) setSigningOut(false);
+    }
+  }
+
+  /**
+   * Adds an empty account in the same region and opens the browser for it. The saved account
+   * keeps its sign-in.
+   */
+  async function addSavedAccount() {
+    if (signOutPending.current || !api.verdictanAddAccount) return;
+    signOutPending.current = true;
+    setRecoveryLabel('Adding account…');
+    setSigningOut(true);
+    const id = ++attempt.current;
+    const sameRegion = status?.region || region;
+    let added = false;
+    try {
+      let result = await api.verdictanAddAccount();
+      if (!live.current || id !== attempt.current) return;
+      if (result.activeAccountId === status?.activeAccountId) return;
+      if (sameRegion && result.region !== sameRegion)
+        result = await api.verdictanSetRegion(sameRegion);
+      if (!live.current || id !== attempt.current) return;
+      account.setStatus(result);
+      setLastUrl('');
+      setErrorCode('');
+      setView('start');
+      added = true;
+    } catch {
+      if (live.current && id === attempt.current)
+        showToast({ message: 'Could not add an account. Try again.', tone: 'error' });
+    } finally {
+      signOutPending.current = false;
+      if (live.current) setSigningOut(false);
+    }
+    // The region of the new account is set above, so `begin` goes to the browser at once.
+    if (added && sameRegion) await begin('login', sameRegion);
+  }
+
   async function copyLink(url = status?.authorization?.url || lastUrl) {
     if (!url) return;
     try {
@@ -342,19 +422,6 @@ export function SignInSteps({
     } catch {
       showToast({ message: 'Could not copy the link.', tone: 'error' });
     }
-  }
-
-  /** Removes the sign-in of the other account in this region, then signs in again. */
-  async function switchAccount() {
-    try {
-      const result = await api.verdictanLogout();
-      if (result.phase === 'authenticated') throw new Error('desktop.logout_failed');
-      account.setStatus(result);
-    } catch {
-      showToast({ message: 'Kalkidan could not sign out. Try again.', tone: 'error' });
-      return;
-    }
-    await begin(intent);
   }
 
   async function reopen() {
@@ -410,6 +477,22 @@ export function SignInSteps({
     window.addEventListener('online', retry);
     return () => window.removeEventListener('online', retry);
   }, [view, errorCode, intent]);
+  // A local gateway failure is often short: the gateway restarts, or another operation ends.
+  // Try again by itself a few times, with a longer wait each time.
+  const gatewayTries = useRef(0);
+  useEffect(() => {
+    if (view !== 'error' || !gatewayCode.test(errorCode)) {
+      if (view !== 'error' && view !== 'waiting') gatewayTries.current = 0;
+      return;
+    }
+    const wait = gatewayRetryMs[gatewayTries.current];
+    if (wait === undefined) return;
+    const timer = setTimeout(() => {
+      gatewayTries.current++;
+      void begin(intent);
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [view, errorCode, intent]);
 
   if (mode === 'gate')
     return (
@@ -432,6 +515,8 @@ export function SignInSteps({
                   region: status?.region || region,
                   runtimeReason,
                   canCopy: !!lastUrl,
+                  signOut: () => void signOutSavedAccount(),
+                  addAccount: api.verdictanAddAccount ? () => void addSavedAccount() : undefined,
                   retry: () => void begin(intent),
                   copy: () => void copyLink(lastUrl),
                   useRegion: (value) => {
@@ -439,7 +524,6 @@ export function SignInSteps({
                     void begin(intent, value);
                   },
                   cancel: () => setView('start'),
-                  signOut: () => void switchAccount(),
                 })
               : undefined
         }
@@ -482,6 +566,8 @@ export function SignInSteps({
       region: status?.region || region,
       runtimeReason,
       canCopy: !!lastUrl,
+      signOut: () => void signOutSavedAccount(),
+      addAccount: api.verdictanAddAccount ? () => void addSavedAccount() : undefined,
       retry: () => void begin(intent),
       copy: () => void copyLink(lastUrl),
       useRegion: (value) => {
@@ -489,9 +575,10 @@ export function SignInSteps({
         void begin(intent, value);
       },
       cancel: () => setView('start'),
-      signOut: () => void switchAccount(),
     });
-    return <ErrorView api={api} mode={mode} copy={copy} />;
+    return (
+      <ErrorView api={api} mode={mode} copy={copy} busy={signingOut} busyLabel={recoveryLabel} />
+    );
   }
 
   const waiting = view === 'waiting';
@@ -754,11 +841,15 @@ function ErrorView({
   api,
   mode,
   copy,
+  busy = false,
+  busyLabel = 'Signing out…',
 }: {
   /** Shows the account help. The setup error of a signed-in account has none. */
   api?: API;
   mode: SignInMode;
   copy: ErrorCopy;
+  busy?: boolean;
+  busyLabel?: string;
 }) {
   return (
     <Screen mode={mode} className="sign-in-error">
@@ -773,11 +864,13 @@ function ErrorView({
       <p className="sign-in-lead">{copy.body}</p>
       <div className="sign-in-row">
         {copy.secondary && (
-          <Button variant="outline" onClick={copy.secondary.run}>
+          <Button variant="outline" disabled={busy} onClick={copy.secondary.run}>
             {copy.secondary.label}
           </Button>
         )}
-        <Button onClick={copy.primary.run}>{copy.primary.label}</Button>
+        <Button disabled={busy} onClick={copy.primary.run}>
+          {busy ? busyLabel : copy.primary.label}
+        </Button>
       </div>
       {api && <AccountHelp api={api} />}
     </Screen>
@@ -832,14 +925,26 @@ function errorCopy(
     region?: Region;
     runtimeReason: string;
     canCopy: boolean;
+    signOut: () => void;
+    addAccount?: () => void;
     retry: () => void;
     copy: () => void;
     useRegion: (region: Region) => void;
     cancel: () => void;
-    signOut: () => void;
   },
 ): ErrorCopy {
   const retry = { label: 'Try again', run: context.retry };
+  if (code === 'desktop.identity_mismatch')
+    return {
+      title: 'The account or organization does not match',
+      body: context.addAccount
+        ? 'The browser selected a different Verdictan account or organization. Retry with the saved account and organization, or add a separate account. Adding an account keeps the existing sign-in but stops managed work and disconnects SSH hosts.'
+        : 'The browser selected a different Verdictan account or organization from the one saved in Kalkidan. Choose the saved account and organization in your browser, then try again. To use a different one, sign out of the saved account first. Signing out stops managed work and disconnects SSH hosts.',
+      primary: context.addAccount
+        ? { label: 'Add account', run: context.addAccount }
+        : { label: 'Sign out of saved account', run: context.signOut },
+      secondary: { label: 'Retry with saved account', run: context.retry },
+    };
   if (code === 'desktop.authorization_timeout' || code === 'desktop.request_timeout')
     return {
       title: 'The sign-in did not finish',
@@ -864,13 +969,11 @@ function errorCopy(
       secondary: { label: 'Cancel', run: context.cancel },
     };
   }
-  // The region keeps the sign-in of one account. Another account needs a sign-out first.
-  if (code === 'desktop.identity_mismatch')
+  if (gatewayCode.test(code))
     return {
-      title: 'This is a different account',
-      body: 'Kalkidan has a sign-in for another Verdictan account in this region. Sign out of that account, then sign in with this account.',
-      primary: { label: 'Sign out and sign in', run: context.signOut },
-      secondary: { label: 'Cancel', run: context.cancel },
+      title: 'The Verdictan gateway on this computer is not ready',
+      body: 'Kalkidan tries again by itself. Nothing changed on your account.',
+      primary: retry,
     };
   if (isOffline(code))
     return {

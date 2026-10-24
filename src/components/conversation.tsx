@@ -159,6 +159,11 @@ function launchFailure(run: ChatRun) {
 }
 
 /** A message that did not reach the agent. Its error shows under the message. */
+/** Codes of a short gateway or account wait. The chat sends again by itself after them. */
+const transientStartCode = /^desktop\.(operation_in_progress|gateway_unavailable|transport_\w+)$/;
+/** The waits before each automatic try. After the last one, only "Try again" sends. */
+const autoRetryMs = [3000, 6000, 12000];
+
 interface SendFailureState {
   messageId: string;
   text: string;
@@ -330,6 +335,8 @@ export function Conversation({
   // "PR #12 is not merged. Mark Done anyway?"
   const [prNotMerged, setPrNotMerged] = useState<SessionPullRequest | null>(null);
   const [sendFailure, setSendFailure] = useState<SendFailureState | null>(null);
+  // The automatic tries of the failed message. See `transientStartCode`.
+  const [autoTries, setAutoTries] = useState(0);
   // The doc passages that "@docs" gave to the agent, for each run.
   const [docPassages, setDocPassages] = useState<Record<string, DocPassage[]>>({});
   const [mentionActive, setMentionActive] = useState(0);
@@ -874,6 +881,8 @@ export function Conversation({
   async function send(retry?: { allowEdits?: boolean; resend?: { text: string; prompt: string } }) {
     const again = retry ? retry.resend || submitted.current : null;
     if (retry ? !again : !prompt.trim()) return;
+    // A new message gets new automatic tries.
+    if (!retry) setAutoTries(0);
     // Signed out: the message waits for the sign-in, then sends by itself.
     if (signedOut && !retry) {
       queueForSignIn([prompt, ...contexts.map((context) => context.text)].join('\n\n'), prompt);
@@ -1044,11 +1053,27 @@ export function Conversation({
     await latestSend.current({ resend: { text: item.text, prompt: sentPrompt } });
   });
   /** Sends the failed message again. */
-  function retrySend() {
+  function retrySend(automatic = false) {
     const failed = sendFailure;
     if (!failed) return;
+    if (!automatic) setAutoTries(0);
     void send({ resend: { text: failed.text, prompt: failed.prompt } });
   }
+  // A short gateway or account wait: send again by itself, with a longer wait each time.
+  const autoRetryWait =
+    sendFailure?.error.code && transientStartCode.test(sendFailure.error.code)
+      ? autoRetryMs[autoTries]
+      : undefined;
+  const retryLatest = useRef(retrySend);
+  retryLatest.current = retrySend;
+  useEffect(() => {
+    if (autoRetryWait === undefined) return;
+    const timer = setTimeout(() => {
+      setAutoTries((tries) => tries + 1);
+      retryLatest.current(true);
+    }, autoRetryWait);
+    return () => clearTimeout(timer);
+  }, [sendFailure, autoRetryWait]);
   /** Starts a new chat with the other agent, with the same message and task. */
   function changeAgent() {
     const failed = sendFailure;
@@ -1687,7 +1712,8 @@ export function Conversation({
                       error={sendFailure.error}
                       api={api}
                       busy={!!active}
-                      onRetry={retrySend}
+                      onRetry={() => retrySend()}
+                      autoRetryMs={autoRetryWait}
                       onChangeAgent={changeAgent}
                       onFork={session.id.startsWith('draft-') ? undefined : () => forkChat(session)}
                       unsaved={!providerSession.current && session.id.startsWith('draft-')}

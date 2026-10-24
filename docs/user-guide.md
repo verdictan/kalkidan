@@ -102,6 +102,47 @@ shows the policy decision, the model, the tokens, the time, and the settlement.
 A missing value is unknown. It is not zero. Select **Load again** to see new
 requests and late settlement corrections.
 
+### Save and switch Verdictan accounts
+
+To add an account:
+
+1. Open the account menu in the sidebar footer.
+2. Select **Add account**.
+3. Sign in through your browser. The new account uses the region of the active account.
+
+Each saved account has its own secure runtime profile. The other accounts stay signed in.
+Kalkidan remembers the active account when you close the app.
+
+To switch accounts, do one of these steps:
+
+- Open the account menu, then select the account under **Accounts**.
+- Press ⌘K (Ctrl+K on Windows and Linux), type the name, then select **Switch to** the account.
+
+Only one account is active at a time. A switch stops managed work and disconnects SSH hosts.
+Kalkidan asks first when agents or hosts are active. Existing chats keep their owner checks.
+Switch back to the account of a chat to continue its managed work.
+
+**Sign out** signs out of the active account only. When you have other saved accounts, the
+signed-out account leaves the list, and Kalkidan continues with another saved account.
+
+If the browser signs in to a different account or organization, the error screen shows
+**Add account**. Select it to keep both sign-ins. Select **Retry with saved account** to use the
+saved account.
+
+### Automatic recovery
+
+Some failures are short. Kalkidan tries again by itself after them:
+
+- A chat that cannot start because another gateway operation runs. The card shows when the next
+  try starts. Kalkidan tries three times, after 3, 6, and 12 seconds.
+- A sign-in that fails because the gateway on this computer is not ready. Kalkidan tries three
+  times, after 2, 4, and 8 seconds.
+- A sign-in that fails because the computer is offline. Kalkidan tries again when the connection
+  comes back.
+
+A chat that starts while a browser sign-in is open waits up to 30 seconds for the sign-in. If the
+sign-in is still open, finish it or cancel it, then try again.
+
 ### Run the source code
 
 Run these commands in sequence:

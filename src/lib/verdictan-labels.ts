@@ -253,7 +253,7 @@ const accountErrors: Record<string, string> = {
   'desktop.region_mismatch':
     'The saved account is in a different region. Sign out before you change the region.',
   'desktop.identity_mismatch':
-    'The browser account is not the saved account. Use the same account, or sign out.',
+    'The browser account or organization does not match the saved one. Choose the same account and organization, or sign out of Kalkidan first.',
   'desktop.auth_expired': 'Your session expired. Sign in again.',
   'desktop.auth_required': 'Sign in first.',
   'desktop.request_timeout': 'The Verdictan gateway did not reply in time. Try again.',

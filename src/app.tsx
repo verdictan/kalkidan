@@ -58,7 +58,14 @@ import { SettingsSheet } from './components/settings-page';
 import { Welcome, useWelcomeGate } from './components/welcome';
 import { hideSplash } from './lib/splash';
 import { ProxySignInDialog } from './components/proxy-sign-in';
-import { AccountMenu, SessionBanner, SignInFlow } from './components/account-menu';
+import {
+  AccountMenu,
+  SessionBanner,
+  SignInFlow,
+  savedAccountName,
+  switchVerdictanAccount,
+} from './components/account-menu';
+import { useVerdictanStatus } from './hooks/use-verdictan-status';
 import { BoardSettingsHost } from './components/board-settings-dialog';
 import { openConnectBoard } from './components/tracker-project-picker';
 import { recentRepo } from './components/new-chat-button';
@@ -111,6 +118,7 @@ import {
   Pin,
   LogIn,
   UserPlus,
+  UserRound,
   AppWindow,
   PanelLeftClose,
   Folder,
@@ -324,6 +332,8 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
   }, [welcome.show]);
   // True when a Verdictan account is signed in. Search hides "Sign in" then.
   const [signedIn, setSignedIn] = useState(false);
+  // The saved accounts, for the "Switch to" commands of search.
+  const { status: accountStatus } = useVerdictanStatus(api);
   const signedInRef = useRef(signedIn);
   signedInRef.current = signedIn;
   useEffect(() => {
@@ -1909,6 +1919,31 @@ export function App({ api, preview = false }: { api: API; preview?: boolean }) {
       icon: <Terminal />,
       run: () => openSettings('tools'),
     },
+    // Each other saved account has a command, so a switch is one search away.
+    ...(api.verdictanSwitchAccount
+      ? (accountStatus?.savedAccounts || [])
+          .filter((account) => account.id !== accountStatus?.activeAccountId)
+          .map((account) => ({
+            key: 'switch-account-' + account.id,
+            label: `Switch to ${savedAccountName(account)}`,
+            keywords: ['account switch verdictan', account.userEmail, account.organizationName]
+              .filter(Boolean)
+              .join(' '),
+            icon: <UserRound />,
+            run: () => void switchVerdictanAccount(api, accountStatus?.activeAccountId, account.id),
+          }))
+      : []),
+    ...(api.verdictanAddAccount
+      ? [
+          {
+            key: 'add-account',
+            label: 'Add a Verdictan account',
+            keywords: 'account switch another second sign in',
+            icon: <UserPlus />,
+            run: () => void switchVerdictanAccount(api, accountStatus?.activeAccountId),
+          },
+        ]
+      : []),
     ...(!signedIn
       ? [
           {

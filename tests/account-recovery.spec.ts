@@ -1,18 +1,14 @@
 import { test, expect } from '@playwright/test';
 
-/**
- * A signed-out desktop with a saved region and a sign-in that expires before the browser
- * finishes. The sign-in starts from search.
- */
+/** A signed-out desktop with a saved region and a failed sign-in. */
 async function signedOut(
   page: import('@playwright/test').Page,
-  failure = 'desktop.authorization_timeout',
+  error = 'desktop.authorization_timeout',
 ) {
-  await page.addInitScript((failure) => {
+  await page.addInitScript((error) => {
     const apiUrl = 'https://api.eu.verdictan.com';
     (window as any).opened = [];
     (window as any).authorizations = 0;
-    (window as any).signOuts = 0;
     (window as any).workspace = {
       trackerProviders: async () => [],
       snapshot: async () => ({
@@ -33,19 +29,10 @@ async function signedOut(
       },
       verdictanAuthorize: async () => {
         (window as any).authorizations++;
-        throw new Error(failure);
-      },
-      verdictanLogout: async () => {
-        (window as any).signOuts++;
-        return {
-          region: 'eu',
-          phase: 'signed-out',
-          account: { state: 'signed-out', apiUrl },
-          executionReady: false,
-        };
+        throw new Error(error);
       },
     };
-  }, failure);
+  }, error);
   await page.goto('/');
 }
 
@@ -104,11 +91,86 @@ test('an expired sign-in link starts again and keeps the account help', async ({
   await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(2);
 });
 
-test('another account in the region signs out, then signs in again', async ({ page }) => {
+for (const outcome of ['success', 'cancel', 'failure'] as const) {
+  test(`account mismatch supports explicit sign-out: ${outcome}`, async ({ page }) => {
+    await signedOut(page, 'desktop.identity_mismatch');
+    await page.evaluate((outcome) => {
+      (window as any).logouts = 0;
+      (window as any).workspace.verdictanLogout = async () => {
+        (window as any).logouts++;
+        if (outcome === 'failure') throw new Error('offline');
+        return {
+          region: 'eu',
+          phase: outcome === 'success' ? 'signed-out' : 'authenticated',
+          account: { state: outcome === 'success' ? 'signed-out' : 'authenticated' },
+          executionReady: false,
+        };
+      };
+    }, outcome);
+    const start = page.getByRole('button', { name: 'Sign in with Verdictan', exact: true });
+    await signIn(page);
+    await expect(page.getByRole('alert')).toHaveText('The account or organization does not match');
+    await expect(page.getByText(/Choose the saved account and organization/)).toBeVisible();
+    await page.getByRole('button', { name: 'Retry with saved account' }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(2);
+    expect(await page.evaluate(() => (window as any).logouts)).toBe(0);
+    await page.getByRole('button', { name: 'Sign out of saved account' }).click();
+    await expect.poll(() => page.evaluate(() => (window as any).logouts)).toBe(1);
+    if (outcome === 'success') {
+      await expect(start).toBeVisible();
+      expect(await page.evaluate(() => (window as any).authorizations)).toBe(2);
+      await start.click();
+      await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(3);
+    } else {
+      await expect(
+        page.getByRole('alert').filter({ hasText: 'The account or organization does not match' }),
+      ).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Sign out of saved account' })).toBeEnabled();
+      await expect(
+        page.getByText(
+          outcome === 'failure'
+            ? 'Could not sign out of the saved account. Try again.'
+            : 'The saved account was not signed out. Try again when ready.',
+        ),
+      ).toBeVisible();
+    }
+  });
+}
+
+test('account mismatch can add a separate profile without signing out', async ({ page }) => {
   await signedOut(page, 'desktop.identity_mismatch');
+  await page.evaluate(() => {
+    (window as any).added = 0;
+    (window as any).workspace.verdictanAddAccount = async () => {
+      (window as any).added++;
+      return { phase: 'signed-out', activeAccountId: 'new-account', executionReady: false };
+    };
+    // The new account has no region yet. Kalkidan gives it the region of the saved account.
+    (window as any).workspace.verdictanSetRegion = async (region: string) => ({
+      region,
+      phase: 'signed-out',
+      activeAccountId: 'new-account',
+      executionReady: false,
+    });
+    (window as any).workspace.verdictanLogout = () => {
+      throw new Error('Must keep the saved account');
+    };
+  });
   await signIn(page);
-  await expect(page.getByRole('alert')).toHaveText('This is a different account');
-  await page.getByRole('button', { name: 'Sign out and sign in', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => (window as any).signOuts)).toBe(1);
+  await page.getByRole('button', { name: 'Add account', exact: true }).click();
+  // The new account starts its sign-in at once, in the same region. No second click.
+  await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(2);
+  expect(await page.evaluate(() => (window as any).added)).toBe(1);
+});
+
+test('a gateway that is not ready is not an internet problem, and the sign-in tries again', async ({
+  page,
+}) => {
+  await signedOut(page, 'desktop.gateway_unavailable');
+  await signIn(page);
+  await expect(page.getByRole('alert')).toHaveText(
+    'The Verdictan gateway on this computer is not ready',
+  );
+  await expect(page.getByText(/Check the internet connection/)).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(2);
 });
