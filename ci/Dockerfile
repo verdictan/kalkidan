@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 make g+
 COPY package.json package-lock.json ./
 # npm ci runs prepare before the full source tree is copied.
 COPY .husky/install.mjs .husky/install.mjs
-RUN npm install --global npm@12.2.0 \
+RUN npm install --global npm@12.2.1 \
     && npm ci \
     && npx playwright install --with-deps chromium \
     && apt-get update && apt-get install -y --no-install-recommends git xvfb xauth openssl libnss3-tools \
