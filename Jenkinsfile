@@ -17,7 +17,7 @@ timeout(time: 150, unit: 'MINUTES') {
     node('linux-untrusted') {
         try {
             stage('Checkout') {
-                deleteDir()
+                cleanWs(deleteDirs: true, disableDeferredWipeout: true)
                 sourceSha = checkout(scm).GIT_COMMIT
             }
             new UntrustedBoundary(this).run()
@@ -25,8 +25,11 @@ timeout(time: 150, unit: 'MINUTES') {
                 sh 'bash scripts/ci-container.sh'
             }
         } finally {
-            archiveArtifacts artifacts: 'ci-results/**', allowEmptyArchive: true
-            deleteDir()
+            try {
+                archiveArtifacts artifacts: 'ci-results/**', allowEmptyArchive: true
+            } finally {
+                cleanWs(deleteDirs: true, disableDeferredWipeout: true)
+            }
         }
     }
     if (!env.CHANGE_ID && env.BRANCH_NAME in ['main', 'master']) {
