@@ -40,11 +40,10 @@ Download an installer from the [releases page](https://github.com/verdictan/pack
 | Platform              | Download filename                                 |
 | --------------------- | ------------------------------------------------- |
 | macOS (Apple Silicon) | `Kalkidan-<version>-mac-arm64.dmg`                |
-| macOS (Intel)         | `Kalkidan-<version>-mac-x64.dmg`                  |
 | Windows (x64)         | `Kalkidan-<version>-win-x64.exe`                  |
 | Linux (x64)           | `Kalkidan-<version>-linux-x64.AppImage` or `.deb` |
 
-Each release also includes ZIP files and `SHA256SUMS.txt`. Replace `<version>` with the release version. Windows and macOS installers are unsigned. macOS installers are not notarized.
+Each release also includes ZIP files and `SHA256SUMS.txt`. Replace `<version>` with the release version. macOS installers are for Apple Silicon only. They have a Developer ID signature, and Apple notarizes them. Windows installers are unsigned.
 
 To run the source code, use Node.js and npm versions from `.node-version` and `package.json`:
 
