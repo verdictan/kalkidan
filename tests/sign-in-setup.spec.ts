@@ -105,3 +105,28 @@ test('the gateway runtime shows only a failure, and Try again repairs it', async
   await expect(failure).toHaveCount(0);
   expect(await page.evaluate(() => (window as any).retries)).toBe(1);
 });
+
+test('before the first project, the session banner starts under the title bar', async ({
+  page,
+}) => {
+  await fixture(
+    page,
+    `return {
+      snapshot: async () => ({ projects: [], groups: [], sessions: [], warnings: [], platform: 'darwin' }),
+      verdictanStatus: async () => ({
+        ...signedIn,
+        phase: 'expired',
+        error: 'desktop.auth_expired',
+        account: { ...signedIn.account, state: 'expired' },
+      }),
+    };`,
+  );
+  const banner = page.getByTestId('session-banner');
+  await expect(banner).toBeVisible();
+  const controls = await page.locator('.titlebar-controls').boundingBox();
+  const box = await banner.boundingBox();
+  expect(controls && box).toBeTruthy();
+  expect(box!.y).toBeGreaterThanOrEqual(controls!.y + controls!.height);
+  await banner.getByRole('button', { name: 'Sign in again', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Sign in to Verdictan' })).toBeVisible();
+});

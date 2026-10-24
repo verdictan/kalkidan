@@ -3828,3 +3828,8 @@ button.tracker-task-chip:focus-visible {
 .projects-page .page-head {
   padding-top: var(--space-3);
 }
+/* Without the sidebar and the chat header, the title bar strip is at the top of the page. The
+   banner starts under it, so the window buttons and the drag area do not cover it. */
+:is(.navigation-collapsed, .no-projects):not(.conversation-open) .session-banner {
+  margin-top: var(--titlebar-height);
+}

@@ -2977,6 +2977,8 @@ app.whenReady().then(async () => {
       title: projectName || 'Kalkidan',
       icon: appIcon,
       backgroundColor: windowColors.background,
+      // The window shows at its first paint, so the launch splash is the first frame.
+      show: false,
       ...(process.platform === 'darwin'
         ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 22, y: 17 } }
         : { titleBarStyle: 'hidden', titleBarOverlay }),
@@ -2986,6 +2988,12 @@ app.whenReady().then(async () => {
         nodeIntegration: false,
         sandbox: true,
       },
+    });
+    // Show the window also when the page does not paint, so the user can see a failure.
+    const reveal = setTimeout(() => !window.isDestroyed() && window.show(), 3000);
+    window.once('ready-to-show', () => {
+      clearTimeout(reveal);
+      window.show();
     });
     win = window;
     windows.add(window);

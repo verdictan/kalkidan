@@ -4,11 +4,15 @@ import { test, expect } from '@playwright/test';
  * A signed-out desktop with a saved region and a sign-in that expires before the browser
  * finishes. The sign-in starts from search.
  */
-async function signedOut(page: import('@playwright/test').Page) {
-  await page.addInitScript(() => {
+async function signedOut(
+  page: import('@playwright/test').Page,
+  failure = 'desktop.authorization_timeout',
+) {
+  await page.addInitScript((failure) => {
     const apiUrl = 'https://api.eu.verdictan.com';
     (window as any).opened = [];
     (window as any).authorizations = 0;
+    (window as any).signOuts = 0;
     (window as any).workspace = {
       trackerProviders: async () => [],
       snapshot: async () => ({
@@ -29,10 +33,19 @@ async function signedOut(page: import('@playwright/test').Page) {
       },
       verdictanAuthorize: async () => {
         (window as any).authorizations++;
-        throw new Error('desktop.authorization_timeout');
+        throw new Error(failure);
+      },
+      verdictanLogout: async () => {
+        (window as any).signOuts++;
+        return {
+          region: 'eu',
+          phase: 'signed-out',
+          account: { state: 'signed-out', apiUrl },
+          executionReady: false,
+        };
       },
     };
-  });
+  }, failure);
   await page.goto('/');
 }
 
@@ -88,5 +101,14 @@ test('an expired sign-in link starts again and keeps the account help', async ({
   await expect(page.getByText(/The sign-in link expired after 5 minutes/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Trouble signing in?' })).toBeVisible();
   await page.getByRole('button', { name: 'Start again', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(2);
+});
+
+test('another account in the region signs out, then signs in again', async ({ page }) => {
+  await signedOut(page, 'desktop.identity_mismatch');
+  await signIn(page);
+  await expect(page.getByRole('alert')).toHaveText('This is a different account');
+  await page.getByRole('button', { name: 'Sign out and sign in', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).signOuts)).toBe(1);
   await expect.poll(() => page.evaluate(() => (window as any).authorizations)).toBe(2);
 });
