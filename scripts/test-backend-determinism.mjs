@@ -2,6 +2,7 @@ import { readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 // Native transport tests remain in npm test; this suite must never start application processes.
 const nativeTests = new Set([
+  'ci-pipeline.test.ts',
   'interactive-chat.test.ts',
   'remote-hosts.test.ts',
   // These open a real helper socket or run a helper over the SSH transport fixture.

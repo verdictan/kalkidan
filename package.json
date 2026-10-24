@@ -165,5 +165,10 @@
     "node": ">=24.22.0"
   },
   "packageManager": "npm@12.2.1",
-  "homepage": "https://github.com/verdictan/kalkidan"
+  "homepage": "https://github.com/verdictan/kalkidan",
+  "allowScripts": {
+    "esbuild": true,
+    "node-pty": true,
+    "electron-winstaller": true
+  }
 }
