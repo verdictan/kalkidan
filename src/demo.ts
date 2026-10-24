@@ -682,6 +682,12 @@ const demoAccount = demoRead<{ region?: 'eu' | 'us'; signedIn: boolean; expired?
   demoAccountKey,
   { signedIn: false },
 );
+const demoAccountsKey = 'kalkidan-demo-accounts';
+const demoAccounts = demoRead<{ activeId: string; accounts: Record<string, typeof demoAccount> }>(
+  demoAccountsKey,
+  { activeId: 'default', accounts: { default: { ...demoAccount } } },
+);
+Object.assign(demoAccount, demoAccounts.accounts[demoAccounts.activeId] || { signedIn: false });
 let demoAuthorization: VerdictanStatus['authorization'];
 let demoAuthorizing: { timer: ReturnType<typeof setTimeout>; done(): void } | undefined;
 const demoListeners = new Set<() => void>();
@@ -698,6 +704,18 @@ const demoCapabilities: VerdictanCapabilities = {
   ],
 };
 function demoStatus(): VerdictanStatus {
+  return {
+    ...demoCurrentStatus(),
+    activeAccountId: demoAccounts.activeId,
+    savedAccounts: Object.entries(demoAccounts.accounts).map(([id, account]) => ({
+      id,
+      region: account.region,
+      userName: account.signedIn ? 'Dana Kim' : undefined,
+      organizationName: account.signedIn ? 'Acme Corp' : undefined,
+    })),
+  };
+}
+function demoCurrentStatus(): VerdictanStatus {
   const region = demoAccount.region;
   if (!region) return { phase: 'error', error: 'desktop.region_required', executionReady: false };
   const apiUrl = `https://api.${region}.verdictan.com`;
@@ -745,6 +763,8 @@ function demoStatus(): VerdictanStatus {
 function demoSaveAccount(change: Partial<typeof demoAccount>) {
   Object.assign(demoAccount, change);
   demoWrite(demoAccountKey, demoAccount);
+  demoAccounts.accounts[demoAccounts.activeId] = { ...demoAccount };
+  demoWrite(demoAccountsKey, demoAccounts);
   if (demoAccount.signedIn)
     demoWrite(demoFirstRunKey, {
       ...demoRead(demoFirstRunKey, { welcomeDone: false, everSignedIn: false }),
@@ -1046,6 +1066,18 @@ export const demo: API = {
     demoStopAuthorization();
     // A sign-in belongs to one region. Another region starts signed out.
     return demoSaveAccount({ region, signedIn: false, expired: false });
+  },
+  verdictanAddAccount: async () => {
+    demoStopAuthorization();
+    demoAccounts.activeId = crypto.randomUUID();
+    return demoSaveAccount({ region: undefined, signedIn: false, expired: false });
+  },
+  verdictanSwitchAccount: async (id) => {
+    const account = demoAccounts.accounts[id];
+    if (!account) throw new Error('Saved Verdictan account not found.');
+    demoStopAuthorization();
+    demoAccounts.activeId = id;
+    return demoSaveAccount({ region: undefined, expired: false, ...account });
   },
   verdictanStatus: async () => demoStatus(),
   verdictanCheck: async () => demoStatus(),

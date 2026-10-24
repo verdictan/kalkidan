@@ -102,6 +102,25 @@ shows the policy decision, the model, the tokens, the time, and the settlement.
 A missing value is unknown. It is not zero. Select **Load again** to see new
 requests and late settlement corrections.
 
+### Save and switch Verdictan accounts
+
+1. Open the account menu in the sidebar footer.
+2. Select **Add account**.
+3. Choose the region, then sign in through your browser.
+
+Each saved account has its own secure runtime profile. The previous account stays
+signed in. Use **Saved accounts** in the account menu to switch accounts. Kalkidan
+remembers the active account when you close the app.
+
+Only one account is active at a time. Switching stops managed work and disconnects
+SSH hosts. Kalkidan asks for confirmation when agents or hosts are active. Existing
+chats keep their original ownership checks. Switch back to their account to continue
+managed work. **Sign out** signs out only the active profile.
+
+If the browser selects a different account or organization, choose **Add account**
+on the error screen to keep both sign-ins. Use **Retry with saved account** when
+you intend to use the existing profile.
+
 ### Run the source code
 
 Run these commands in sequence:
