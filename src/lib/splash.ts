@@ -2,7 +2,7 @@
 // The app hides it when the first page can show. It waits only for the entrance of the
 // lockup, never for a minimum time.
 
-/** The end of the entrance: the name is in place at 760 ms after the launch. */
+/** The length of the entrance: the name is in place 760 ms after the first paint. */
 const entranceMs = 760;
 /** The hand-off: the lockup fades in 200 ms, the background 40 ms later. */
 const outMs = 240;
@@ -22,6 +22,18 @@ export interface HideSplashOptions {
    * the lockup moves, so the two do not show together.
    */
   glideTo?: HTMLElement | null;
+}
+
+/**
+ * Resolves when the entrance animations of the lockup end. The animations start at the first
+ * paint of the window, not at the navigation start, so a time from `performance.now()` can cut
+ * the entrance. The wait has a limit, because a hidden window does not run its animations.
+ */
+function entrance(splash: HTMLElement) {
+  const animations = splash.getAnimations?.({ subtree: true }) ?? [];
+  const ended = Promise.all(animations.map((animation) => animation.finished.catch(() => null)));
+  const limit = new Promise((resolve) => window.setTimeout(resolve, entranceMs * 2));
+  return Promise.race([ended, limit]);
 }
 
 function reducedMotion() {
@@ -64,26 +76,24 @@ export function hideSplash(options: HideSplashOptions = {}) {
   // Browser automation (tests) does not wait for the splash.
   const fast = navigator.webdriver;
   const reduced = reducedMotion();
-  window.setTimeout(
-    () => {
-      const target = !fast && !reduced ? options.glideTo : null;
-      if (target && target.isConnected) {
-        const visibility = target.style.visibility;
-        target.style.visibility = 'hidden';
-        if (glide(splash, target)) {
-          window.setTimeout(() => {
-            target.style.visibility = visibility;
-            splash.remove();
-          }, glideMs);
-          return;
-        }
-        target.style.visibility = visibility;
+  const ready = fast || reduced ? Promise.resolve() : entrance(splash);
+  void ready.then(() => {
+    const target = !fast && !reduced ? options.glideTo : null;
+    if (target && target.isConnected) {
+      const visibility = target.style.visibility;
+      target.style.visibility = 'hidden';
+      if (glide(splash, target)) {
+        window.setTimeout(() => {
+          target.style.visibility = visibility;
+          splash.remove();
+        }, glideMs);
+        return;
       }
-      splash.classList.add('splash-out');
-      window.setTimeout(() => splash.remove(), fast ? 0 : reduced ? fadeMs : outMs);
-    },
-    fast || reduced ? 0 : Math.max(0, entranceMs - performance.now()),
-  );
+      target.style.visibility = visibility;
+    }
+    splash.classList.add('splash-out');
+    window.setTimeout(() => splash.remove(), fast ? 0 : reduced ? fadeMs : outMs);
+  });
 }
 
 if (typeof window !== 'undefined') window.setTimeout(() => hideSplash(), maximumMs);

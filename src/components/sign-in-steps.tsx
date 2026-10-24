@@ -344,6 +344,19 @@ export function SignInSteps({
     }
   }
 
+  /** Removes the sign-in of the other account in this region, then signs in again. */
+  async function switchAccount() {
+    try {
+      const result = await api.verdictanLogout();
+      if (result.phase === 'authenticated') throw new Error('desktop.logout_failed');
+      account.setStatus(result);
+    } catch {
+      showToast({ message: 'Kalkidan could not sign out. Try again.', tone: 'error' });
+      return;
+    }
+    await begin(intent);
+  }
+
   async function reopen() {
     try {
       if (typeof api.verdictanReopenBrowser === 'function') await api.verdictanReopenBrowser();
@@ -426,6 +439,7 @@ export function SignInSteps({
                     void begin(intent, value);
                   },
                   cancel: () => setView('start'),
+                  signOut: () => void switchAccount(),
                 })
               : undefined
         }
@@ -475,6 +489,7 @@ export function SignInSteps({
         void begin(intent, value);
       },
       cancel: () => setView('start'),
+      signOut: () => void switchAccount(),
     });
     return <ErrorView api={api} mode={mode} copy={copy} />;
   }
@@ -821,6 +836,7 @@ function errorCopy(
     copy: () => void;
     useRegion: (region: Region) => void;
     cancel: () => void;
+    signOut: () => void;
   },
 ): ErrorCopy {
   const retry = { label: 'Try again', run: context.retry };
@@ -848,6 +864,14 @@ function errorCopy(
       secondary: { label: 'Cancel', run: context.cancel },
     };
   }
+  // The region keeps the sign-in of one account. Another account needs a sign-out first.
+  if (code === 'desktop.identity_mismatch')
+    return {
+      title: 'This is a different account',
+      body: 'Kalkidan has a sign-in for another Verdictan account in this region. Sign out of that account, then sign in with this account.',
+      primary: { label: 'Sign out and sign in', run: context.signOut },
+      secondary: { label: 'Cancel', run: context.cancel },
+    };
   if (isOffline(code))
     return {
       title: 'Kalkidan cannot reach Verdictan',
