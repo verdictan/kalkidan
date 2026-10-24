@@ -28,6 +28,7 @@ export function createVerdictanServices(options: {
   desktopVersion: string;
   hostId: string;
   region?: string;
+  profile?: string;
   busy(): boolean;
   openBrowser(url: string): Promise<unknown>;
   changed?(): void;
@@ -54,7 +55,8 @@ export function createVerdictanServices(options: {
   // Without a selected region, no account client starts. The EU origins then only configure
   // the signed-out version probe, which makes no account request.
   const { apiOrigin, consoleOrigin } = selected ?? verdictanRegion('eu');
-  const profile = selected?.profile ?? 'kalkidan';
+  const profile = options.profile ?? selected?.profile ?? 'kalkidan';
+  if (!/^[a-z0-9-]{1,100}$/.test(profile)) throw new Error('Invalid account profile.');
   // The CLI compatibility contract accepts the core version, without build metadata.
   if (!desktopVersion(options.desktopVersion)) throw new Error('Invalid desktop version.');
   const compatibilityVersion = options.desktopVersion.split('-')[0];

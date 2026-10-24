@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from 'react';
 import {
   BookOpen,
   ChevronsUpDown,
+  Check,
+  Plus,
   CircleAlert,
   ExternalLink,
   LogOut,
   Settings,
   UserRound,
 } from 'lucide-react';
+import type { VerdictanStatus } from '../domain/verdictan';
 import type { API } from '../api/contracts';
 import { keychainHostsMessage, keychainRefusedCode } from '../domain/verdictan';
 import { accountNames, rejectedSessionText, verdictanErrorMessage } from '../lib/verdictan-labels';
@@ -61,6 +64,67 @@ function useMenuOpen() {
     return () => window.removeEventListener('kalkidan-open-account-menu', show);
   }, []);
   return [open, setOpen] as const;
+}
+
+/** Saved profiles keep their sign-ins. Only one profile runs managed work at a time. */
+function SavedAccountItems({ api, status }: { api: API; status?: VerdictanStatus }) {
+  const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  if (!api.verdictanAddAccount || !api.verdictanSwitchAccount) return null;
+  async function select(id?: string) {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    try {
+      const result = id ? await api.verdictanSwitchAccount!(id) : await api.verdictanAddAccount!();
+      // A canceled native confirmation returns the current profile.
+      if (result.activeAccountId === status?.activeAccountId) return;
+      if (result.phase !== 'authenticated') startSignIn('login');
+    } catch {
+      showToast({
+        message: 'Could not switch accounts. Check that the runtime is ready, then try again.',
+        tone: 'error',
+      });
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <DropdownMenuLabel>Saved accounts</DropdownMenuLabel>
+      {(status?.savedAccounts || []).map((account) => (
+        <DropdownMenuItem
+          key={account.id}
+          disabled={busy || account.id === status?.activeAccountId}
+          onSelect={() => void select(account.id)}
+        >
+          {account.id === status?.activeAccountId ? (
+            <Check className="size-4" />
+          ) : (
+            <UserRound className="size-4" />
+          )}
+          <span className="min-w-0">
+            <span className="block truncate">
+              {account.userName || account.userEmail || 'Account awaiting sign-in'}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {[
+                account.organizationName,
+                account.region ? regionNames[account.region] : 'Choose a region',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </span>
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuItem disabled={busy} onSelect={() => void select()}>
+        <Plus className="size-4" /> Add account
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+    </>
+  );
 }
 
 /** The Settings item of the account menu. Settings also opens with ⌘,. */
@@ -146,6 +210,18 @@ export function AccountMenu({ api }: { api: API }) {
             <span className="st-account-label">{label}</span>
           </span>
         )}
+        {api.verdictanSwitchAccount && (
+          <DropdownMenu open={open} onOpenChange={setOpen}>
+            <DropdownMenuTrigger asChild>
+              <button type="button" className="row-focus p-2" aria-label="Saved accounts">
+                <ChevronsUpDown className="size-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="top" align="start" className={menuClass}>
+              <SavedAccountItems api={api} status={status} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     );
   }
@@ -186,6 +262,7 @@ export function AccountMenu({ api }: { api: API }) {
             </DropdownMenuLabel>
           )}
           {header.length > 0 && <DropdownMenuSeparator />}
+          <SavedAccountItems api={api} status={status} />
           <SettingsItem />
           {typeof api.verdictanOpenConsole === 'function' && (
             <DropdownMenuItem
